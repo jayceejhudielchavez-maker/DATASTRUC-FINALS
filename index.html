@@ -1,21 +1,1545 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Project Data Structure</title>
-        <link rel="stylesheet" href="style.css">
-    <body>
-        <header>
-            <h1>Basic disaster Relief System</h1>
-            
-        </header>
-        <main>
-            <section>
-                <h2>Tree Traversal</h2>
-                <p>This project demonstrates various tree traversal algorithms including pre-order, in-order, post-order, and breadth-first traversal.</p>
-                <pre><code class="language-cpp">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ReliefSys – Smart Disaster Relief Distribution System</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&display=swap" rel="stylesheet">
 
-                </body>
-            </html>
+  <style>
+    /* ===================== Theme colors ===================== */
+    :root {
+      --bg: #eef2f6;      /* page background */
+      --card: #fff;       /* card background */
+      --tx: #12263a;      /* text */
+      --mu: #5d7080;      /* muted text */
+      --bd: #d8e0e8;      /* borders */
+      --pr: #12263a;      /* primary */
+      --prt: #fff;        /* text on primary */
+      --ac: #ff6a1a;      /* accent (orange) */
+      --p1: #c0392b;      /* priority: high */
+      --p2: #c77700;      /* priority: medium */
+      --p3: #2f7fbf;      /* priority: regular */
+      --ok: #17805d;      /* success */
+      --hd: 'Bricolage Grotesque', system-ui, sans-serif;
+      box-sizing: border-box;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme=light]) {
+        --bg: #0d1620;
+        --card: #15222f;
+        --tx: #e8eef3;
+        --mu: #8fa2b2;
+        --bd: #263646;
+        --pr: #ff6a1a;
+        --prt: #1a0d04;
+        --ok: #3ccf9b;
+      }
+    }
+
+    /* ===================== Base ===================== */
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--tx);
+      font: 14px/1.45 system-ui, Segoe UI, sans-serif;
+    }
+
+    button, input, select { font: inherit; color: inherit; }
+    h1, h2, h3 { font-family: var(--hd); margin: 0; }
+    :focus-visible { outline: 3px solid var(--ac); outline-offset: 2px; }
+
+    /* ===================== Buttons & form fields ===================== */
+    .btn {
+      background: var(--pr);
+      color: var(--prt);
+      border: 0;
+      padding: 9px 15px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform .15s, box-shadow .15s;
+    }
+    .btn:hover  { transform: translateY(-1px); box-shadow: 0 4px 12px #0003; }
+    .btn:active { transform: scale(.97); }
+    .btn.o { background: none; color: var(--tx); border: 1px solid var(--bd); box-shadow: none; }  /* outline */
+    .btn.s { padding: 5px 10px; font-size: 12px; }                                                /* small */
+    .btn.a { background: var(--ac); color: #1a0d04; }                                             /* accent */
+
+    input, select {
+      background: var(--card);
+      border: 1px solid var(--bd);
+      border-radius: 8px;
+      padding: 9px;
+      width: 100%;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--mu);
+      margin: 10px 0 3px;
+    }
+
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+
+    /* Checkbox lists (vulnerability categories, proof checks) */
+    input[type=checkbox] { width: auto; margin: 2px 0 0; flex: none; }
+    .cks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+    .cks.one { grid-template-columns: 1fr; }
+    .cks label {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      margin: 0;
+      font-size: 13px;
+      color: var(--tx);
+      cursor: pointer;
+    }
+    .cks label.off { color: var(--mu); cursor: default; }
+    .hint { font-size: 12px; color: var(--mu); min-height: 16px; margin-top: 3px; }
+    .actions { display: flex; gap: 8px; margin-top: 14px; }
+
+    /* ===================== Login screen ===================== */
+    #login { min-height: 100vh; display: grid; grid-template-columns: 1.1fr 1fr; }
+
+    .hero {
+      background: #12263a;
+      color: #fff;
+      padding: 48px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero h1 { font-size: clamp(30px, 4.2vw, 52px); line-height: 1.05; font-weight: 800; max-width: 11em; }
+    .hero p  { max-width: 30em; color: #b9c8d6; }
+
+    .ring {
+      position: absolute;
+      right: -90px;
+      bottom: -90px;
+      width: 320px;
+      height: 320px;
+      border-radius: 50%;
+      border: 2px solid var(--ac);
+      opacity: .5;
+      animation: pulse 3.2s ease-out infinite;
+    }
+    .ring.r2 { animation-delay: 1.6s; }
+
+    .mini { margin-top: 26px; max-width: 340px; }
+    .mini div {
+      display: flex;
+      justify-content: space-between;
+      background: #ffffff14;
+      border-radius: 8px;
+      padding: 9px 12px;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+    .mini .x1 { animation: up 5s ease-in-out infinite; }
+    .mini .x2 { animation: down 5s ease-in-out infinite; }
+
+    .side { display: grid; place-items: center; padding: 20px; }
+
+    .box {
+      background: var(--card);
+      border: 1px solid var(--bd);
+      border-radius: 14px;
+      padding: 24px;
+      width: 100%;
+      max-width: 420px;
+      animation: pop .3s ease;
+    }
+    .box.wide { max-width: 520px; }
+
+    .shake { animation: shake .35s; }
+    .err { color: var(--p1); font-size: 12px; min-height: 16px; margin-top: 8px; }
+
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .chip {
+      border: 1px dashed var(--bd);
+      border-radius: 99px;
+      padding: 3px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      background: none;
+    }
+
+    /* ===================== App layout ===================== */
+    #app { display: none; min-height: 100vh; }
+
+    aside {
+      width: 220px;
+      background: var(--pr);
+      color: var(--prt);
+      padding: 16px;
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      overflow: auto;
+    }
+    aside h2 { font-size: 19px; margin-bottom: 16px; }
+    aside a {
+      display: block;
+      padding: 9px 11px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-bottom: 2px;
+      opacity: .8;
+      transition: all .2s;
+    }
+    aside a:hover { opacity: 1; background: #ffffff1f; transform: translateX(3px); }
+    aside a.on    { background: var(--ac); color: #1a0d04; opacity: 1; font-weight: 700; }
+
+    main { margin-left: 220px; padding: 22px; max-width: 1080px; }
+
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    h1#title { font-size: 26px; }
+    .in { animation: fade .35s ease; }
+
+    /* ===================== Cards, tables & tags ===================== */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--bd);
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 12px;
+    }
+    .stat b    { font-family: var(--hd); font-size: 30px; display: block; }
+    .stat span { color: var(--mu); font-size: 12px; }
+    .warn { border-left: 4px solid var(--ac); }
+
+    .tw { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      text-align: left;
+      padding: 8px;
+      border-bottom: 1px solid var(--bd);
+      white-space: nowrap;
+    }
+    th { color: var(--mu); font-size: 12px; }
+
+    .tag { padding: 2px 9px; border-radius: 99px; color: #fff; font-size: 11px; font-weight: 700; }
+    .t1 { background: var(--p1); }
+    .t2 { background: var(--p2); }
+    .t3 { background: var(--p3); }
+    .t0 { background: var(--mu); }
+
+    .bar   { height: 9px; background: var(--bd); border-radius: 9px; overflow: hidden; }
+    .bar i { display: block; height: 100%; background: var(--ok); border-radius: 9px; animation: grow 1s ease-out; }
+
+    .note {
+      background: var(--bg);
+      border: 1px dashed var(--bd);
+      border-radius: 8px;
+      padding: 9px;
+      color: var(--mu);
+      font-size: 12px;
+      margin-top: 10px;
+    }
+
+    /* ===================== Priority queue cards ===================== */
+    .q {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px;
+      border: 1px solid var(--bd);
+      border-radius: 10px;
+      margin-bottom: 8px;
+      background: var(--card);
+      animation: fade .4s both;
+    }
+    .q .n {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--bg);
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+    }
+    .q .g { flex: 1; }
+    .q.first    { border-color: var(--ac); box-shadow: 0 0 0 2px var(--ac) inset; }
+    .q.first .n { background: var(--ac); color: #1a0d04; }
+    .q.out      { animation: out .5s forwards; }
+
+    /* ===================== Modal, toast & tutorial ===================== */
+    #modal {
+      position: fixed;
+      inset: 0;
+      background: #000a;
+      display: none;
+      place-items: center;
+      padding: 14px;
+      z-index: 9;
+      overflow: auto;
+    }
+
+    #toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translate(-50%, 80px);
+      background: var(--ok);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 9px;
+      z-index: 10;
+      transition: transform .35s cubic-bezier(.2, 1.4, .4, 1);
+    }
+    #toast.show { transform: translate(-50%, 0); }
+
+    .dots      { display: flex; gap: 5px; margin: 14px 0; }
+    .dots i    { height: 5px; flex: 1; border-radius: 4px; background: var(--bd); transition: background .3s; }
+    .dots i.on { background: var(--ac); }
+
+    .demo { background: var(--bg); border-radius: 10px; padding: 10px; margin: 10px 0; overflow: hidden; }
+    .demo div {
+      display: flex;
+      justify-content: space-between;
+      background: var(--card);
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+    .demo .x1 { animation: up 4s ease-in-out infinite; }
+    .demo .x2 { animation: down 4s ease-in-out infinite; }
+
+    /* ===================== Animations ===================== */
+    @keyframes pulse {
+      0%   { transform: scale(.4); opacity: .7; }
+      100% { transform: scale(1.5); opacity: 0; }
+    }
+    @keyframes up {
+      0%, 30%  { transform: translateY(0); }
+      50%, 85% { transform: translateY(-44px); }
+      100%     { transform: translateY(0); }
+    }
+    @keyframes down {
+      0%, 30%  { transform: translateY(0); }
+      50%, 85% { transform: translateY(44px); }
+      100%     { transform: translateY(0); }
+    }
+    @keyframes pop {
+      from { opacity: 0; transform: scale(.95) translateY(8px); }
+      to   { opacity: 1; transform: none; }
+    }
+    @keyframes shake {
+      25% { transform: translateX(-8px); }
+      75% { transform: translateX(8px); }
+    }
+    @keyframes fade {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: none; }
+    }
+    @keyframes grow { from { width: 0 !important; } }
+    @keyframes out  { to { opacity: 0; transform: translateX(60px); } }
+
+    /* ===================== Phones & reduced motion ===================== */
+    @media (max-width: 760px) {
+      #login { grid-template-columns: 1fr; }
+      .hero { padding: 28px; }
+      aside { position: static; width: auto; display: flex; gap: 4px; overflow-x: auto; }
+      aside h2 { display: none; }
+      aside a { white-space: nowrap; }
+      main { margin: 0; padding: 12px; }
+      .two, .cks { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ===================== Login screen ===================== -->
+  <div id="login">
+    <section class="hero">
+      <h1>Relief goes to the people who need it most.</h1>
+      <p>Priority is set by vulnerability and household need. Income, status and donations never move anyone up the queue.</p>
+      <div class="mini">
+        <div class="x1"><span>Jose · PWD · very low income</span><b>#1</b></div>
+        <div class="x2"><span>Carlo · PWD · high income</span><b>#2</b></div>
+      </div>
+      <i class="ring"></i>
+      <i class="ring r2"></i>
+    </section>
+
+    <section class="side">
+      <div class="box" id="lbox"></div>
+    </section>
+  </div>
+
+  <!-- ===================== Main app ===================== -->
+  <div id="app">
+    <aside>
+      <h2>ReliefSys</h2>
+      <nav id="nav"></nav>
+    </aside>
+
+    <main>
+      <div class="top">
+        <h1 id="title"></h1>
+        <div>
+          <span id="who" style="color:var(--mu);margin-right:8px"></span>
+          <button class="btn o s" onclick="tour(0)">How to use</button>
+          <button class="btn o s" onclick="logout()">Log out</button>
+        </div>
+      </div>
+      <div id="view"></div>
+    </main>
+  </div>
+
+  <div id="modal"><div class="box wide" id="mbox"></div></div>
+  <div id="toast"></div>
+
+  <!-- QR code scanner library (used for the PhilSys ID scan on sign-up) -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+
+  <script>
+    /* =========================================================
+       DATA
+       ========================================================= */
+
+    // Vulnerability category -> priority tier (1 = highest)
+    const CAT = {
+      "Pregnant woman": 1,
+      "Senior citizen": 1,
+      "Person with disability (PWD)": 1,
+      "Severe illness": 1,
+      "Single parent household": 2,
+      "Indigent": 2,
+      "Regular household": 3
+    };
+
+    const PL = { 1: "High", 2: "Medium", 3: "Regular" };
+
+    const SENIOR = "Senior citizen";      // never ticked by hand: set from the birthdate (age 60+, RA 9994)
+    const REG = "Regular household";      // used only when no other category applies
+    const MAX_AGE = 120;                  // older birthdates are rejected as impossible
+
+    // What the verifier must see before a category counts
+    const PROOF = {
+      "Pregnant woman":               "Prenatal record or medical certificate",
+      "Senior citizen":               "Senior Citizen ID, or the birthdate on a valid ID",
+      "Person with disability (PWD)": "PWD ID or medical certificate",
+      "Severe illness":               "Medical certificate",
+      "Single parent household":      "Solo Parent ID or barangay certification",
+      "Indigent":                     "Certificate of indigency"
+    };
+
+    // Monthly household income brackets (index 0 = poorest)
+    const INC = ["Below ₱10,000", "₱10,000–20,000", "₱20,000–50,000", "Above ₱50,000"];
+
+    const IDS = [
+      "PhilSys National ID",
+      "PWD ID",
+      "Senior Citizen ID",
+      "Voter's ID",
+      "Driver's License",
+      "Barangay certificate (no ID yet)"
+    ];
+
+    // Accounts  (u = username, p = password, st = status)
+    let A = [
+      { u: "admin01",  p: "admin123", role: "Admin",         name: "Admin Lipa",     st: "Active" },
+      { u: "lgu_lipa", p: "lgu123",   role: "LGU Personnel", name: "LGU Lipa",       st: "Active" },
+      { u: "ngo_help", p: "ngo123",   role: "NGO Staff",     name: "NGO Helper",     st: "Active" },
+      { u: "vol_juan", p: "vol123",   role: "Volunteer",     name: "Juan Dela Cruz", st: "Active" }
+    ];
+
+    // Beneficiaries  (dob = birthdate, fam = family size, cats = claimed categories (senior is added
+    //                 from the birthdate), inc = income bracket, idt/idn = ID type/number,
+    //                 ver = ID verified, done = already served, by/verBy = who registered/verified,
+    //                 flags = warnings found when saved)
+    let B = [
+      { id: 1, name: "Maria Santos",  brgy: "Brgy. Sabang",   dob: "1958-03-12", fam: 4, cats: [],                                                  inc: 0, idt: IDS[2], idn: "SC-20481",  ver: true,  done: false, by: "vol_juan", verBy: "lgu_lipa" },
+      { id: 2, name: "Ana Reyes",     brgy: "Brgy. Marawoy",  dob: "1999-05-20", fam: 3, cats: ["Pregnant woman", "Person with disability (PWD)"], inc: 1, idt: IDS[0], idn: "1234-5678", ver: true,  done: false, by: "vol_juan", verBy: "lgu_lipa" },
+      { id: 3, name: "Pedro Cruz",    brgy: "Brgy. Antipolo", dob: "1985-01-09", fam: 5, cats: [],                                                  inc: 2, idt: IDS[3], idn: "VR-77120",  ver: true,  done: false, by: "vol_juan", verBy: "lgu_lipa" },
+      { id: 4, name: "Liza Bautista", brgy: "Brgy. Sabang",   dob: "1991-07-30", fam: 3, cats: ["Single parent household"],                         inc: 0, idt: IDS[5], idn: "BC-0915",   ver: false, done: false, by: "vol_juan" },
+      { id: 5, name: "Jose Dizon",    brgy: "Brgy. Mataas",   dob: "1974-02-11", fam: 6, cats: ["Person with disability (PWD)"],                    inc: 0, idt: IDS[1], idn: "PWD-30918", ver: true,  done: false, by: "vol_juan", verBy: "lgu_lipa" },
+      { id: 6, name: "Carlo Tan",     brgy: "Brgy. Sabang",   dob: "1977-06-18", fam: 3, cats: ["Person with disability (PWD)"],                    inc: 3, idt: IDS[1], idn: "PWD-55120", ver: true,  done: false, by: "vol_juan", verBy: "lgu_lipa" },
+      { id: 7, name: "Rosa Lim",      brgy: "Brgy. Marawoy",  dob: "1981-04-25", fam: 4, cats: ["Indigent"],                                        inc: 0, idt: IDS[0], idn: "8765-4321", ver: true,  done: true,  by: "vol_juan", verBy: "lgu_lipa" },
+      { id: 8, name: "Carmen Villa",  brgy: "Brgy. Mataas",   dob: "1919-08-14", fam: 2, cats: [],                                                  inc: 0, idt: IDS[5], idn: "BC-1123",   ver: false, done: false, by: "vol_juan" }
+    ];
+
+    // Sponsors
+    let S = [
+      { id: 1, name: "Rotary Club of Lipa", type: "Organization", contact: "rotary@email.com" },
+      { id: 2, name: "ABC Foods Inc.",      type: "Company",      contact: "0920-555-6666" }
+    ];
+
+    // Inventory  (don = donated, dist = distributed, per = amount given per family)
+    let I = [
+      { item: "Rice (kg)",          don: 500, dist: 5, per: 5 },
+      { item: "Canned goods (pcs)", don: 300, dist: 4, per: 4 },
+      { item: "Bottled water (L)",  don: 400, dist: 6, per: 6 },
+      { item: "Hygiene kits",       don: 100, dist: 1, per: 1 }
+    ];
+
+    // Distribution history
+    let D = [
+      { id: 1, date: "2026-10-05", ben: "Rosa Lim", items: "Rice 5, Canned 4, Water 6, Kit 1", by: "LGU Personnel" }
+    ];
+
+    // Donation records
+    let DON = [
+      { date: "2026-10-04", sp: "Rotary Club of Lipa", item: "Rice (kg)", q: 300 }
+    ];
+
+    let role = "", user = "", cur = "Dashboard", toured = false;
+
+    // Pages each role can open
+    const MENU = {
+      "Admin":         ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sponsors & Donations", "Distribution History", "Reports", "Users"],
+      "LGU Personnel": ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sponsors & Donations", "Distribution History", "Reports"],
+      "NGO Staff":     ["Dashboard", "Priority Queue", "Inventory", "Sponsors & Donations", "Distribution History", "Reports"],
+      "Volunteer":     ["Dashboard", "Beneficiaries", "Priority Queue"]
+    };
+
+
+    /* =========================================================
+       HELPERS
+       ========================================================= */
+
+    const $ = id => document.getElementById(id);
+    const rem = x => x.don - x.dist;                                      // stock remaining
+    const staff = () => role === "Admin" || role === "LGU Personnel";     // can verify / delete
+    const pad2 = n => String(n).padStart(2, "0");
+    const today = () => {                                                 // local date, yyyy-mm-dd
+      const d = new Date();
+      return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    };
+    const minDob = () => (new Date().getFullYear() - MAX_AGE) + today().slice(4);
+
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+    const mask = s => "•••• " + esc(s.slice(-4));
+
+    // Age in whole years from a yyyy-mm-dd birthdate. NaN if the date is missing or not real (e.g. Feb 31).
+    function ageOf(dob) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dob || "");
+      if (!m) return NaN;
+      const y = +m[1], mo = +m[2], d = +m[3];
+      const check = new Date(y, mo - 1, d);
+      if (check.getFullYear() !== y || check.getMonth() !== mo - 1 || check.getDate() !== d) return NaN;
+
+      const t = new Date();
+      const beforeBirthday = t.getMonth() + 1 < mo || (t.getMonth() + 1 === mo && t.getDate() < d);
+      return t.getFullYear() - y - (beforeBirthday ? 1 : 0);
+    }
+
+    // A person's categories. Senior always comes from the birthdate, never from what was ticked.
+    function cats(b) {
+      const c = b.cats.filter(x => x !== SENIOR && x !== REG);
+      if (ageOf(b.dob) >= 60) c.push(SENIOR);
+      return c.length ? c : [REG];
+    }
+
+    const tier  = b => Math.min(...cats(b).map(c => CAT[c]));            // best (lowest) tier they qualify for
+    const vulns = b => cats(b).filter(c => CAT[c] === 1).length;          // how many high-priority needs
+    const tag = b => `<span class="tag t${tier(b)}">${PL[tier(b)]}</span>`;
+
+    // Warnings that need a closer look before verification
+    function flagsOf(b) {
+      const a = ageOf(b.dob), c = cats(b), f = [];
+      if (a > 100) f.push(`Age ${a}: confirm the birthdate on the ID`);
+      if (c.includes("Pregnant woman") && (a < 12 || a > 55)) f.push(`Pregnant at age ${a}: confirm with a prenatal record`);
+      if (c.includes(SENIOR) && b.idt === IDS[5]) f.push("Senior with no ID: confirm the birthdate another way");
+      if (c.includes("Person with disability (PWD)") && b.idt !== IDS[1]) f.push("PWD without a PWD ID: check medical proof");
+      return f;
+    }
+
+    function toast(message) {
+      const t = $("toast");
+      t.textContent = message;
+      t.className = "show";
+      clearTimeout(t.h);
+      t.h = setTimeout(() => t.className = "", 2400);
+    }
+
+    // Priority Queue: best vulnerability tier first, then more high-priority needs first
+    // (a pregnant PWD before someone only pregnant), then household income (poorest first),
+    // then registration order. Only ID-verified people enter.
+    const queue = () => B
+      .filter(b => !b.done && b.ver)
+      .sort((a, b) => tier(a) - tier(b) || vulns(b) - vulns(a) || a.inc - b.inc || a.id - b.id);
+
+    const pend = () => B.filter(b => !b.ver);
+
+
+    /* =========================================================
+       PHILSYS QR SCAN
+       Auto-fills the sign-up form only. The QR signature is not
+       verified, so an Admin still checks the ID.
+       ========================================================= */
+
+    let qr = null, cam = null;
+
+    // Fake PhilSys-style QR content for demos without a real card
+    const SAMPLE_QR = JSON.stringify({
+      DateIssued: "July 15, 2023",
+      Issuer: "PSA",
+      subject: {
+        Suffix: "", lName: "Dela Cruz", fName: "Juana", mName: "Santos", sex: "Female",
+        DOB: "March 08, 1995", POB: "Lipa City, Batangas", PCN: "1234-5678-9012-3456"
+      },
+      alg: "EDDSA",
+      signature: "demo"
+    });
+
+    const digits = s => String(s).replace(/\D/g, "");
+
+    // Reads name, birthdate and card number from the QR text. Returns null if it isn't a PhilSys QR.
+    function qrData(text) {
+      let j;
+      try { j = JSON.parse(text); } catch (e) { return null; }
+      if (!j || typeof j !== "object") return null;
+
+      // Field names differ between card versions, so several spellings are accepted
+      const s = j.subject || j.sb || j;
+      const field = names => {
+        for (const key in s) {
+          if (names.includes(key.toLowerCase())) return String(s[key] ?? "").trim();
+        }
+        return "";
+      };
+
+      const pcn = field(["pcn"]);
+      if (digits(pcn).length !== 16) return null;
+
+      // Birthdate -> yyyy-mm-dd for the date input
+      const raw = field(["dob", "birthdate", "date_of_birth"]);
+      const d = new Date(raw);
+      const pad = n => String(n).padStart(2, "0");
+      const dob = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw
+                : isNaN(d) ? ""
+                : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+      const name = [
+        field(["fname", "fn", "first_name"]),
+        field(["mname", "mn", "middle_name"]),
+        field(["lname", "ln", "last_name"]),
+        field(["suffix", "sf"])
+      ].filter(Boolean).join(" ");
+
+      return { name, dob, pcn };
+    }
+
+    function fillQR(text) {
+      const q = qrData(text);
+      if (!q) return bad("That QR code isn't from a PhilSys National ID. Type your details instead.");
+
+      qr = q;
+      $("s1").value = q.name;
+      $("s2").value = q.dob;
+      $("s6").value = IDS[0];
+      $("s7").value = q.pcn;
+      $("err").textContent = "";
+      $("qrs").innerHTML = `<b style="color:var(--ok)">✓ Filled from PhilSys QR.</b> Check the details, then finish the form.`;
+      toast("PhilSys ID scanned");
+    }
+
+    function startCam() {
+      if (typeof Html5Qrcode === "undefined") return bad("The scanner couldn't load. Check your internet connection.");
+
+      stopCam();
+      $("qrv").style.display = "block";
+      cam = new Html5Qrcode("qrv");
+      cam.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: 240 },
+        text => { stopCam(); fillQR(text); }
+      ).catch(() => {
+        stopCam();
+        bad("Camera not available. Upload a photo of the QR code instead.");
+      });
+    }
+
+    function stopCam() {
+      const c = cam;
+      cam = null;
+      if (c) {
+        try {
+          (c.isScanning ? c.stop() : Promise.resolve())
+            .then(() => c.clear())
+            .catch(() => {});
+        } catch (e) {}
+      }
+      if ($("qrv")) $("qrv").style.display = "none";
+    }
+
+    function scanFile(file) {
+      if (typeof Html5Qrcode === "undefined") return bad("The scanner couldn't load. Check your internet connection.");
+
+      stopCam();
+      const reader = new Html5Qrcode("qrv");
+      reader.scanFile(file, false)
+        .then(fillQR)
+        .catch(() => bad("No QR code found. Try a sharper, closer photo of the QR."))
+        .finally(() => { try { reader.clear(); } catch (e) {} });
+    }
+
+
+    /* =========================================================
+       LOGIN & ACCOUNT CREATION
+       ========================================================= */
+
+    function showLogin() {
+      stopCam();
+      const demoChips = A.slice(0, 4)
+        .map(a => `<button class="chip" onclick="$('u').value='${a.u}';$('p').value='${a.p}'">${a.role}</button>`)
+        .join("");
+
+      $("lbox").className = "box";
+      $("lbox").innerHTML = `
+        <h2 style="font-size:24px">Sign in</h2>
+        <p style="color:var(--mu);margin:4px 0 0">Authorized relief staff only.</p>
+
+        <label>Username</label>
+        <input id="u" autocomplete="username">
+        <label>Password</label>
+        <input id="p" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()">
+
+        <div class="err" id="err"></div>
+        <button class="btn" style="width:100%;margin-top:6px" onclick="login()">Log in</button>
+        <button class="btn o" style="width:100%;margin-top:8px" onclick="showSignup()">Create an account</button>
+
+        <div class="note">
+          Demo accounts (tap to fill):
+          <div class="chips">${demoChips}</div>
+        </div>`;
+    }
+
+    function showSignup() {
+      qr = null;
+      const idOptions = IDS.slice(0, 5).map(x => `<option>${x}</option>`).join("");
+
+      $("lbox").className = "box wide";
+      $("lbox").innerHTML = `
+        <h2 style="font-size:24px">Create an account</h2>
+        <p style="color:var(--mu);margin:4px 0 0">An Admin checks your ID before you can log in. This keeps relief records trustworthy.</p>
+
+        <div class="note">
+          <b>Have a PhilSys National ID?</b> Scan its QR code to fill in your name, birthdate and ID number.
+          <div class="chips">
+            <button class="btn s" onclick="startCam()">Scan with camera</button>
+            <label class="btn o s" style="display:inline-block;margin:0;font-size:12px;color:var(--tx)">
+              Upload QR photo
+              <input type="file" accept="image/*" hidden onchange="this.files[0]&&scanFile(this.files[0]);this.value=''">
+            </label>
+            <button class="chip" onclick="fillQR(SAMPLE_QR)">Try sample QR</button>
+          </div>
+          <div id="qrv" style="display:none;margin-top:8px;border-radius:8px;overflow:hidden"></div>
+          <div id="qrs" style="margin-top:6px"></div>
+        </div>
+
+        <div class="two">
+          <div><label>Full name</label><input id="s1"></div>
+          <div><label>Birthdate</label><input id="s2" type="date" min="${minDob()}" max="${today()}"></div>
+        </div>
+
+        <label>Home address / Barangay</label>
+        <input id="s3">
+
+        <div class="two">
+          <div><label>Contact number</label><input id="s4"></div>
+          <div><label>Organization / office</label><input id="s5"></div>
+        </div>
+
+        <div class="two">
+          <div><label>Valid ID type</label><select id="s6">${idOptions}</select></div>
+          <div><label>ID number</label><input id="s7"></div>
+        </div>
+
+        <div class="two">
+          <div>
+            <label>Role requested</label>
+            <select id="s8">
+              <option>Volunteer</option>
+              <option>NGO Staff</option>
+              <option>LGU Personnel</option>
+            </select>
+          </div>
+          <div><label>Username</label><input id="s9"></div>
+        </div>
+
+        <label>Password (6+ characters)</label>
+        <input id="s10" type="password">
+        <div class="err" id="err"></div>
+
+        <button class="btn" style="width:100%" onclick="signup()">Submit for approval</button>
+        <button class="btn o" style="width:100%;margin-top:8px" onclick="showLogin()">Back to sign in</button>
+
+        <div class="note">Donating or holding a position never changes anyone's place in the relief queue.</div>`;
+    }
+
+    // Shows an error message and shakes the login box
+    function bad(message) {
+      $("err").textContent = message;
+      const box = $("lbox");
+      box.classList.remove("shake");
+      void box.offsetWidth;   // restart the animation
+      box.classList.add("shake");
+    }
+
+    function signup() {
+      const g = i => $("s" + i).value.trim();
+
+      if (!g(1) || !g(2) || !g(3) || !g(7) || !g(9)) return bad("Fill in name, birthdate, address, ID number and username.");
+      const age = ageOf(g(2));
+      if (isNaN(age) || age < 0 || age > MAX_AGE)   return bad("Enter a real birthdate (not in the future, not over " + MAX_AGE + " years ago).");
+      if (!/^\w{3,20}$/.test(g(9)))                 return bad("Username: 3–20 letters, numbers or _ only.");
+      if (g(10).length < 6)                          return bad("Password needs at least 6 characters.");
+      if (A.some(a => a.u === g(9)))                 return bad("That username is taken. Try another.");
+
+      // Marked "QR" only if the scanned values were left unchanged
+      const viaQR = !!qr
+        && g(6) === IDS[0]
+        && digits(g(7)) === digits(qr.pcn)
+        && g(1) === qr.name
+        && g(2) === qr.dob;
+
+      A.push({
+        u: g(9), p: g(10), role: g(8), name: g(1), st: "Pending",
+        idt: g(6), idn: g(7), addr: g(3), contact: g(4), org: g(5), dob: g(2),
+        qr: viaQR
+      });
+
+      showLogin();
+      toast("Account submitted · waiting for Admin approval");
+    }
+
+    function login() {
+      const a = A.find(x => x.u === $("u").value.trim() && x.p === $("p").value);
+
+      if (!a)                 return bad("Wrong username or password.");
+      if (a.st !== "Active")  return bad("Your account is still waiting for Admin approval.");
+
+      role = a.role;
+      user = a.u;
+      $("login").style.display = "none";
+      $("app").style.display = "block";
+      $("who").textContent = a.u + " · " + role;
+      go("Dashboard");
+      toast("Login successful");
+
+      // Show the tutorial on the first login
+      if (!toured) {
+        toured = true;
+        setTimeout(() => tour(0), 700);
+      }
+    }
+
+    function logout() {
+      $("app").style.display = "none";
+      $("login").style.display = "grid";
+      showLogin();
+    }
+
+
+    /* =========================================================
+       NAVIGATION & MODAL
+       ========================================================= */
+
+    function go(page) {
+      cur = page;
+      $("title").textContent = page;
+      $("nav").innerHTML = MENU[role]
+        .map(m => `<a class="${m === page ? "on" : ""}" onclick="go('${m}')">${m}</a>`)
+        .join("");
+
+      // Restart the fade-in animation, then draw the page
+      const v = $("view");
+      v.className = "";
+      void v.offsetWidth;
+      v.className = "in";
+      v.innerHTML = V[page]();
+
+      // Count-up animation for the dashboard numbers
+      v.querySelectorAll("[data-n]").forEach(e => {
+        const n = +e.dataset.n;
+        const t0 = performance.now();
+        (function step(t) {
+          const k = Math.min(1, (t - t0) / 700);
+          e.textContent = Math.round(n * k);
+          if (k < 1) requestAnimationFrame(step);
+        })(t0);
+      });
+    }
+
+    function modal(html) {
+      $("mbox").innerHTML = html;
+      $("modal").style.display = "grid";
+    }
+
+    function close_() {
+      $("modal").style.display = "none";
+    }
+
+    // Clicking the dark background closes the modal
+    $("modal").onclick = e => {
+      if (e.target.id === "modal") close_();
+    };
+
+
+    /* =========================================================
+       TUTORIAL
+       ========================================================= */
+
+    const TUT = [
+      ["Welcome to ReliefSys",
+       "This 1-minute tour shows how to run a relief distribution. Reopen it any time with <b>How to use</b> at the top right."],
+      ["1. Read the dashboard",
+       "The dashboard shows registered beneficiaries, the queue size, and how much stock is donated, distributed and remaining. It updates after every action."],
+      ["2. Register beneficiaries",
+       "Open <b>Beneficiaries</b> and press <b>Register</b>. Enter the person's details and birthdate, tick <b>every</b> category that applies, then add household income and ID. Senior citizen is set automatically from the birthdate. A different LGU or Admin must check the ID and proof for each category before the person joins the queue. No ID? Choose the barangay certificate so poor families are not left out.", "b"],
+      ["3. Understand the priority queue",
+       "Order is decided in four steps: vulnerability group first, then how many high-priority needs the person has (a pregnant PWD before someone only pregnant), then household income with the poorest first, then who registered earlier. Donations and job titles never change the order.", "q"],
+      ["4. Serve the next person",
+       "In <b>Priority Queue</b>, press <b>Serve Next</b> on the first card. Check the goods list and confirm. Inventory goes down and the transaction is saved.", "i"],
+      ["5. Record donations",
+       "In <b>Sponsors & Donations</b>, add a sponsor, then record the donation. Stock rises right away.", "i"],
+      ["6. Check reports and accounts",
+       "Use <b>Reports</b> to print or save PDF summaries. Admins approve new accounts in <b>Users</b> after checking their ID."]
+    ];
+
+    function tour(i) {
+      // Volunteers can't use donations, reports or accounts, so their tour ends after step 4
+      const t = (role === "Volunteer" && i >= 5) ? null : TUT[i];
+      if (!t) return close_();
+
+      const steps = role === "Volunteer" ? 5 : TUT.length;
+      const dots = Array.from({ length: steps }, (_, k) => `<i class="${k <= i ? "on" : ""}"></i>`).join("");
+      const queueDemo = `
+        <div class="demo">
+          <div class="x1"><span>Jose · PWD · very low income</span><b>#1</b></div>
+          <div class="x2"><span>Carlo · PWD · high income</span><b>#2</b></div>
+        </div>`;
+
+      modal(`
+        <div class="in">
+          <h2 style="font-size:22px">${t[0]}</h2>
+          <div class="dots">${dots}</div>
+          <p>${t[1]}</p>
+          ${t[2] === "q" ? queueDemo : ""}
+          <div style="display:flex;gap:8px;margin-top:16px">
+            ${i ? `<button class="btn o" onclick="tour(${i - 1})">Back</button>` : ""}
+            <button class="btn a" onclick="tour(${i + 1})">${i >= steps - 1 ? "Finish" : "Next"}</button>
+            <button class="btn o" style="margin-left:auto" onclick="close_()">Skip</button>
+          </div>
+        </div>`);
+    }
+
+
+    /* =========================================================
+       PAGES
+       ========================================================= */
+
+    const V = {
+      Dashboard() {
+        const donated = I.reduce((sum, x) => sum + x.don, 0);
+        const given = I.reduce((sum, x) => sum + x.dist, 0);
+        const q = queue();
+
+        const stats = [
+          [B.length, "Registered beneficiaries"],
+          [q.length, "Waiting in queue"],
+          [pend().length, "Need ID verification"],
+          [D.length, "Distributions recorded"],
+          [donated, "Total donated"],
+          [given, "Distributed"],
+          [donated - given, "Remaining"]
+        ];
+
+        const statCards = stats
+          .map(x => `<div class="card stat"><b data-n="${x[0]}">0</b><span>${x[1]}</span></div>`)
+          .join("");
+
+        const stockBars = I.map(x => `
+          <p style="margin:10px 0 3px">${esc(x.item)} <span style="color:var(--mu)">· ${rem(x)} left of ${x.don}</span></p>
+          <div class="bar"><i style="width:${x.don ? rem(x) / x.don * 100 : 0}%"></i></div>`).join("");
+
+        const next = q[0]
+          ? esc(q[0].name) + " " + tag(q[0]) + ` <span style="color:var(--mu)">· ${INC[q[0].inc]}</span>`
+          : "No one waiting";
+
+        return `
+          <div class="grid">${statCards}</div>
+          <div class="card"><b>Inventory status</b>${stockBars}</div>
+          <div class="card"><b>Next in queue:</b> ${next}</div>`;
+      },
+
+      Beneficiaries() {
+        const rows = B.map(b => {
+          const warn = !b.ver && b.flags.length
+            ? ` <span class="tag t1" title="${esc(b.flags.join("\n"))}">${b.flags.length} warning${b.flags.length > 1 ? "s" : ""}</span>`
+            : "";
+          const status = !b.ver ? '<span class="tag t0">Needs ID check</span>' + warn : b.done ? "Served" : "Waiting";
+          const actions = staff()
+            ? (!b.ver ? `<button class="btn s" onclick="ver(${b.id})">Verify ID</button> ` : "")
+              + `<button class="btn o s" onclick="delB(${b.id})">Delete</button>`
+            : "";
+
+          return `
+            <tr>
+              <td>${esc(b.name)}</td>
+              <td>${esc(b.brgy)}</td>
+              <td>${ageOf(b.dob)}</td>
+              <td>${b.fam}</td>
+              <td>${cats(b).join("<br>")}</td>
+              <td>${INC[b.inc]}</td>
+              <td>${b.idt.split(" ")[0]} ${mask(b.idn)}</td>
+              <td>${tag(b)}</td>
+              <td>${status}</td>
+              <td style="color:var(--mu)">${esc(b.by)}${b.verBy ? " → " + esc(b.verBy) : ""}</td>
+              <td>${actions}</td>
+            </tr>`;
+        }).join("");
+
+        return `
+          <div class="top">
+            <span style="color:var(--mu)">Centralized beneficiary records</span>
+            <button class="btn a" onclick="addB()">+ Register beneficiary</button>
+          </div>
+
+          <div class="card tw">
+            <table>
+              <tr>
+                <th>Name</th><th>Barangay</th><th>Age</th><th>Family</th><th>Category</th>
+                <th>Household income</th><th>ID</th><th>Priority</th><th>Status</th><th>Registered → verified by</th><th></th>
+              </tr>
+              ${rows}
+            </table>
+          </div>
+
+          <div class="note">
+            Priority comes from the best vulnerability category, then how many high-priority needs, then household income.
+            Senior citizen is set from the birthdate. People with unverified IDs wait outside the queue until
+            an LGU or Admin, other than the person who registered them, checks the ID and each category's proof.
+            Hover over a warning to read it.
+            ${role === "Volunteer" ? "Volunteers can register but not verify or delete." : ""}
+          </div>`;
+      },
+
+      "Priority Queue"() {
+        const q = queue();
+        const p = pend();
+
+        const cards = q.map((b, i) => `
+          <div class="q ${i ? "" : "first"}" id="q${b.id}" style="animation-delay:${i * 60}ms">
+            <div class="n">${i + 1}</div>
+            <div class="g">
+              <b>${esc(b.name)}</b> · ${esc(b.brgy)}<br>
+              <span style="color:var(--mu)">${cats(b).join(" + ")} · ${INC[b.inc]} · family of ${b.fam}</span>
+            </div>
+            ${tag(b)}
+            ${i === 0 ? `<button class="btn a s" onclick="serve(${b.id})">Serve Next</button>` : ""}
+          </div>`).join("");
+
+        const waiting = p.length ? `
+          <div class="card warn" style="margin-top:14px">
+            <b>${p.length} waiting for ID verification</b><br>
+            <span style="color:var(--mu)">${p.map(b => esc(b.name)).join(", ")}. An LGU or Admin must verify them in Beneficiaries.</span>
+          </div>` : "";
+
+        return `
+          <p style="color:var(--mu)">Vulnerability group, then most high-priority needs, then poorest household first, then registration order.</p>
+          ${cards || "<div class='card'>Queue is empty. Everyone verified has been served.</div>"}
+          ${waiting}`;
+      },
+
+      Inventory() {
+        const rows = I.map(x => {
+          const pct = x.don ? rem(x) / x.don * 100 : 0;
+          const low = rem(x) / x.don < .2 ? "background:var(--p1)" : "";
+          return `
+            <tr>
+              <td>${esc(x.item)}</td>
+              <td>${x.don}</td>
+              <td>${x.dist}</td>
+              <td><b>${rem(x)}</b></td>
+              <td style="min-width:110px"><div class="bar"><i style="width:${pct}%;${low}"></i></div></td>
+            </tr>`;
+        }).join("");
+
+        return `
+          <div class="top">
+            <span style="color:var(--mu)">Donated · Distributed · Remaining</span>
+            ${role !== "Volunteer" ? '<button class="btn a" onclick="addItem()">+ Add relief item</button>' : ""}
+          </div>
+
+          <div class="card tw">
+            <table>
+              <tr><th>Item</th><th>Donated</th><th>Distributed</th><th>Remaining</th><th>Level</th></tr>
+              ${rows}
+            </table>
+          </div>`;
+      },
+
+      "Sponsors & Donations"() {
+        const sponsorRows = S
+          .map(s => `<tr><td>${esc(s.name)}</td><td>${s.type}</td><td>${esc(s.contact)}</td></tr>`)
+          .join("");
+        const donationRows = DON
+          .map(d => `<tr><td>${d.date}</td><td>${esc(d.sp)}</td><td>${esc(d.item)}</td><td>${d.q}</td></tr>`)
+          .join("");
+
+        return `
+          <div class="top">
+            <span style="color:var(--mu)">Sources of relief goods. Donating does not affect queue order.</span>
+            <div>
+              <button class="btn o" onclick="addSp()">+ Add sponsor</button>
+              <button class="btn a" onclick="addDon()">+ Record donation</button>
+            </div>
+          </div>
+
+          <div class="card tw">
+            <b>Sponsors</b>
+            <table>
+              <tr><th>Name</th><th>Type</th><th>Contact</th></tr>
+              ${sponsorRows}
+            </table>
+          </div>
+
+          <div class="card tw">
+            <b>Donation records</b>
+            <table>
+              <tr><th>Date</th><th>Sponsor</th><th>Item</th><th>Qty</th></tr>
+              ${donationRows}
+            </table>
+          </div>`;
+      },
+
+      "Distribution History"() {
+        const rows = D
+          .map(d => `<tr><td>${d.date}</td><td>${esc(d.ben)}</td><td>${esc(d.items)}</td><td>${d.by}</td></tr>`)
+          .join("");
+
+        return `
+          <div class="card tw">
+            <table>
+              <tr><th>Date</th><th>Beneficiary</th><th>Goods given</th><th>Processed by</th></tr>
+              ${rows}
+            </table>
+          </div>`;
+      },
+
+      Reports() {
+        const buttons = ["Beneficiary", "Sponsor", "Inventory", "Donation", "Distribution"]
+          .map(r => `<button class="btn o" onclick="rep('${r}')">${r} report</button>`)
+          .join("");
+
+        return `
+          <div class="grid">${buttons}</div>
+          <div id="rp" class="card" style="display:none"></div>`;
+      },
+
+      Users() {
+        const pending = A.filter(a => a.st === "Pending");
+
+        const rows = A.map(a => {
+          const id = a.idt ? a.idt.split(" ")[0] + " " + mask(a.idn) : "On file";
+          const qrTag = a.qr ? ` <span class="tag t3" title="Details filled from the PhilSys QR code">QR</span>` : "";
+          return `
+            <tr>
+              <td>${esc(a.name)}</td>
+              <td>${a.u}</td>
+              <td>${a.role}</td>
+              <td>${id}${qrTag}</td>
+              <td>${a.st}</td>
+              <td>${userActions(a)}</td>
+            </tr>`;
+        }).join("");
+
+        return `
+          ${pending.length ? `<div class="card warn"><b>${pending.length} account(s) waiting for approval</b></div>` : ""}
+          <div class="card tw">
+            <table>
+              <tr><th>Name</th><th>Username</th><th>Role</th><th>ID submitted</th><th>Status</th><th></th></tr>
+              ${rows}
+            </table>
+          </div>`;
+      }
+    };
+
+    // Buttons in the Users table: approve/reject new accounts, or turn existing ones on/off
+    function userActions(a) {
+      if (a.st === "Pending") {
+        return `<button class="btn s" onclick="setSt('${a.u}','Active')">Approve</button>
+                <button class="btn o s" onclick="setSt('${a.u}','Rejected')">Reject</button>`;
+      }
+      if (a.u === user) return "";   // can't deactivate yourself
+
+      const next = a.st === "Active" ? "Deactivated" : "Active";
+      const label = a.st === "Active" ? "Deactivate" : "Activate";
+      return `<button class="btn o s" onclick="setSt('${a.u}','${next}')">${label}</button>`;
+    }
+
+    function setSt(username, status) {
+      A.find(a => a.u === username).st = status;
+      go("Users");
+      toast("Account " + status.toLowerCase());
+    }
+
+    // Verification: the verifier ticks each proof they actually saw. Must be a different person
+    // from whoever registered the record.
+    function ver(id) {
+      const b = B.find(x => x.id === id);
+      if (b.by === user) return toast("You registered this person. Another LGU or Admin must verify them");
+
+      const proofs = cats(b).filter(c => c !== REG).map(c => `
+        <label><input type="checkbox" class="pf" value="${c}">
+          <span><b>${c}</b><br><span style="color:var(--mu)">${PROOF[c]}</span></span></label>`).join("");
+
+      const warnings = b.flags.length ? `
+        <div class="card warn" style="margin:12px 0 0">
+          <b>Warnings</b>
+          <ul style="margin:6px 0">${b.flags.map(f => `<li>${esc(f)}</li>`).join("")}</ul>
+          <div class="cks one"><label><input type="checkbox" id="vf"> I checked these warnings against the documents</label></div>
+        </div>` : "";
+
+      modal(`
+        <h3>Verify ${esc(b.name)}</h3>
+        <p style="color:var(--mu)">${esc(b.idt)} ${mask(b.idn)} · born ${b.dob} (age ${ageOf(b.dob)}) · registered by ${esc(b.by)}</p>
+
+        <div class="cks one">
+          <label><input type="checkbox" class="pf" value="ID">
+            <span><b>Identity</b><br><span style="color:var(--mu)">The ID matches the person, their name and birthdate</span></span></label>
+          ${proofs}
+        </div>
+        ${warnings}
+
+        <div class="note">
+          Untick any category with no proof. It will be removed from the record.
+          Senior status comes from the birthdate, so if the age can't be proven, delete the record and register it again with the right birthdate.
+        </div>
+        <div class="err" id="verr"></div>
+
+        <div class="actions">
+          <button class="btn a" onclick="confirmVer(${id})">Verify</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+    }
+
+    function confirmVer(id) {
+      const b = B.find(x => x.id === id);
+      const seen = [...document.querySelectorAll(".pf:checked")].map(x => x.value);
+      const err = m => { $("verr").textContent = m; };
+
+      if (!seen.includes("ID"))                          return err("Check the ID first. Without it the person can't join the queue.");
+      if (cats(b).includes(SENIOR) && !seen.includes(SENIOR)) return err("No proof of age. Delete this record and register it again with the right birthdate.");
+      if (b.flags.length && !$("vf").checked)            return err("Review the warnings first.");
+
+      const removed = b.cats.filter(c => !seen.includes(c));
+      b.cats = b.cats.filter(c => seen.includes(c));
+      b.ver = true;
+      b.verBy = user;
+
+      close_();
+      go("Beneficiaries");
+      toast(removed.length ? "Verified · removed (no proof): " + removed.join(", ") : "ID verified · added to priority queue");
+    }
+
+
+    /* =========================================================
+       FORMS & ACTIONS
+       ========================================================= */
+
+    // ----- Beneficiaries -----
+    function addB() {
+      // Senior is shown but locked: the birthdate ticks it. Regular household is implied when nothing is ticked.
+      const categories = Object.keys(CAT).filter(c => c !== REG).map(c => c === SENIOR
+        ? `<label class="off"><input type="checkbox" id="cSenior" disabled> ${c} (set from birthdate)</label>`
+        : `<label><input type="checkbox" class="cat" value="${c}"> ${c}</label>`).join("");
+      const incomes = INC.map((x, i) => `<option value="${i}">${x}</option>`).join("");
+      const idTypes = IDS.map(x => `<option>${x}</option>`).join("");
+
+      modal(`
+        <h3>Register beneficiary</h3>
+
+        <div class="two">
+          <div><label>Full name</label><input id="f1"></div>
+          <div>
+            <label>Birthdate</label>
+            <input id="f3" type="date" min="${minDob()}" max="${today()}" oninput="ageHint()">
+            <div class="hint" id="ageH"></div>
+          </div>
+        </div>
+
+        <label>Address / Barangay</label>
+        <input id="f2">
+
+        <div class="two">
+          <div><label>Contact number (optional)</label><input id="f4"></div>
+          <div><label>Family members</label><input id="f5" type="number" value="1" min="1" max="30"></div>
+        </div>
+
+        <label>Vulnerability categories (tick all that apply, leave empty for a regular household)</label>
+        <div class="cks">${categories}</div>
+
+        <label>Monthly household income</label>
+        <select id="f7">${incomes}</select>
+
+        <div class="two">
+          <div><label>ID type</label><select id="f8">${idTypes}</select></div>
+          <div><label>ID number</label><input id="f9"></div>
+        </div>
+
+        <div class="note">
+          More high-priority needs rank higher, then lower household income.
+          Every category needs proof when an LGU or Admin verifies the person.
+        </div>
+
+        <div class="actions">
+          <button class="btn a" onclick="saveB()">Save</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+    }
+
+    // Shows the age as the birthdate is typed, and ticks the locked Senior box at 60+
+    function ageHint() {
+      const v = $("f3").value;
+      const a = ageOf(v);
+      const ok = !isNaN(a) && a >= 0 && a <= MAX_AGE;
+
+      $("cSenior").checked = ok && a >= 60;
+      $("ageH").style.color = v && !ok ? "var(--p1)" : "";
+      $("ageH").textContent = !v ? ""
+        : !ok ? "Not a realistic birthdate"
+        : `Age ${a}${a >= 60 ? " · counts as senior" : ""}${a > 100 ? " · will be flagged for review" : ""}`;
+    }
+
+    function saveB() {
+      const name = $("f1").value.trim();
+      const dob = $("f3").value;
+      const age = ageOf(dob);
+      const fam = +$("f5").value;
+      const idNumber = $("f9").value.trim();
+
+      if (!name || !idNumber)                          return toast("Name and ID number are required");
+      if (isNaN(age))                                  return toast("Enter a valid birthdate");
+      if (age < 0 || dob > today())                    return toast("Birthdate can't be in the future");
+      if (age > MAX_AGE)                               return toast(`Birthdate is over ${MAX_AGE} years ago. Check the ID`);
+      if (!Number.isInteger(fam) || fam < 1 || fam > 30) return toast("Family members must be a whole number from 1 to 30");
+
+      // Same ID number, or same name + birthdate, means this person is already registered
+      const key = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
+      const dup = B.find(b => key(b.idn) === key(idNumber) || (key(b.name) === key(name) && b.dob === dob));
+      if (dup) return toast(`Already registered as ${dup.name}. Duplicates aren't allowed`);
+
+      const b = {
+        id: Date.now(),
+        name,
+        brgy: $("f2").value.trim() || "—",
+        dob,
+        fam,
+        cats: [...document.querySelectorAll(".cat:checked")].map(x => x.value),
+        inc: +$("f7").value,
+        idt: $("f8").value,
+        idn: idNumber,
+        ver: false,
+        done: false,
+        by: user
+      };
+      b.flags = flagsOf(b);
+      B.push(b);
+
+      close_();
+      go("Beneficiaries");
+      toast(b.flags.length ? "Saved · flagged for review before verification" : "Saved · waiting for ID verification");
+    }
+
+    function delB(id) {
+      if (!confirm("Delete " + B.find(b => b.id === id).name + "? This cannot be undone.")) return;
+
+      B = B.filter(b => b.id !== id);
+      go("Beneficiaries");
+      toast("Record deleted");
+    }
+
+    // ----- Distribution -----
+    function serve(id) {
+      const b = B.find(x => x.id == id);
+      const goods = I.map(x => `
+        <tr>
+          <td>${esc(x.item)}</td>
+          <td>${x.per}</td>
+          <td style="color:${rem(x) < x.per ? "var(--p1)" : "var(--mu)"}">${rem(x)} left</td>
+        </tr>`).join("");
+
+      modal(`
+        <h3>Distribute relief goods</h3>
+        <p>
+          <b>${esc(b.name)}</b> ${tag(b)}<br>
+          <span style="color:var(--mu)">${esc(b.brgy)} · ${b.idt.split(" ")[0]} ${mask(b.idn)} · family of ${b.fam}</span>
+        </p>
+
+        <table>${goods}</table>
+
+        <div class="actions">
+          <button class="btn a" onclick="confirmServe(${id})">Confirm distribution</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+    }
+
+    function confirmServe(id) {
+      const low = I.find(x => rem(x) < x.per);
+      if (low) {
+        toast("Not enough " + low.item + " for one family");
+        return;
+      }
+
+      const b = B.find(x => x.id == id);
+      I.forEach(x => x.dist += x.per);
+      b.done = true;
+      D.unshift({
+        id: Date.now(),
+        date: today(),
+        ben: b.name,
+        items: I.map(x => x.item.split(" ")[0] + " " + x.per).join(", "),
+        by: role
+      });
+
+      // Slide the card out, then refresh the queue
+      close_();
+      const card = $("q" + id);
+      if (card) card.classList.add("out");
+      setTimeout(() => {
+        go("Priority Queue");
+        toast("Recorded · inventory updated");
+      }, 450);
+    }
+
+    // ----- Inventory -----
+    function addItem() {
+      modal(`
+        <h3>Add relief item</h3>
+        <label>Item name</label>
+        <input id="f1">
+        <label>Quantity per family</label>
+        <input id="f2" type="number" value="1">
+
+        <div class="actions">
+          <button class="btn a" onclick="saveItem()">Save</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+    }
+
+    function saveItem() {
+      I.push({ item: $("f1").value || "Item", don: 0, dist: 0, per: +$("f2").value || 1 });
+      close_();
+      go("Inventory");
+      toast("Item added");
+    }
+
+    // ----- Sponsors & donations -----
+    function addSp() {
+      modal(`
+        <h3>Add sponsor / donor</h3>
+        <label>Name</label>
+        <input id="f1">
+        <label>Type</label>
+        <select id="f2">
+          <option>Individual</option>
+          <option>Organization</option>
+          <option>Company</option>
+        </select>
+        <label>Contact</label>
+        <input id="f3">
+
+        <div class="actions">
+          <button class="btn a" onclick="saveSp()">Save</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+    }
+
+    function saveSp() {
+      S.push({ id: Date.now(), name: $("f1").value || "Unnamed", type: $("f2").value, contact: $("f3").value });
+      close_();
+      go("Sponsors & Donations");
+      toast("Sponsor saved");
+    }
+
+    function addDon() {
+      const sponsors = S.map(s => `<option>${esc(s.name)}</option>`).join("");
+      const items = I.map(x => `<option>${esc(x.item)}</option>`).join("");
+
+      modal(`
+        <h3>Record donation</h3>
+        <label>Sponsor</label>
+        <select id="f1">${sponsors}</select>
+        <label>Item</label>
+        <select id="f2">${items}</select>
+        <label>Quantity</label>
+        <input id="f3" type="number" value="50">
+
+        <div class="actions">
+          <button class="btn a" onclick="saveDon()">Save donation</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+    }
+
+    function saveDon() {
+      const qty = +$("f3").value || 0;
+      const item = $("f2").value;
+
+      I.find(x => x.item === item).don += qty;
+      DON.unshift({ date: today(), sp: $("f1").value, item, q: qty });
+
+      close_();
+      go("Sponsors & Donations");
+      toast("Donation recorded · inventory increased");
+    }
+
+    // ----- Reports -----
+    function rep(type) {
+      const reports = {
+        Beneficiary:  () => B.map(b => `${b.name} — ${cats(b).join(" + ")}, ${INC[b.inc]}, ${b.ver ? "ID verified" : "ID pending"}`),
+        Sponsor:      () => S.map(s => `${s.name} — ${s.type}`),
+        Inventory:    () => I.map(x => `${x.item}: donated ${x.don}, distributed ${x.dist}, remaining ${rem(x)}`),
+        Donation:     () => DON.map(d => `${d.date} ${d.sp}: ${d.q} × ${d.item}`),
+        Distribution: () => D.map(d => `${d.date} ${d.ben}: ${d.items}`)
+      };
+      const lines = reports[type]();
+
+      const el = $("rp");
+      el.style.display = "block";
+      el.className = "card in";
+      el.innerHTML = `
+        <b>${type} report</b>
+        <button class="btn s" style="float:right" onclick="window.print()">Print / Save PDF</button>
+        <ul>${lines.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
+    }
+
+
+    /* =========================================================
+       START
+       ========================================================= */
+    B.forEach(b => b.flags = flagsOf(b));
+    showLogin();
+  </script>
+</body>
+</html>
