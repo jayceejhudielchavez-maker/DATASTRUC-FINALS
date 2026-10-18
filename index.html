@@ -418,6 +418,8 @@
 
   <!-- QR code scanner library (used for the PhilSys ID scan on sign-up) -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+  <!-- Supabase client (database + login) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
 
   <script>
     /* =========================================================
@@ -463,34 +465,27 @@
       "Barangay certificate (no ID yet)"
     ];
 
-    // Accounts  (u = username, p = password, st = status)
-    let A = [
-      { u: "admin01",  p: "admin123", role: "Admin",         name: "Admin Lipa",     st: "Active" },
-      { u: "lgu_lipa", p: "lgu123",   role: "LGU Personnel", name: "LGU Lipa",       st: "Active" },
-      { u: "ngo_help", p: "ngo123",   role: "NGO Staff",     name: "NGO Helper",     st: "Active" },
-      { u: "vol_juan", p: "vol123",   role: "Volunteer",     name: "Juan Dela Cruz", st: "Active" }
-    ];
+    // ----- Supabase connection -----
+    // The publishable key is meant to be public. The database's Row Level Security rules
+    // (supabase/schema.sql) decide what each role can read or change. Never put the secret key here.
+    const SUPABASE_URL = "https://hhelbuhqouomekjhuwuo.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_xa6nceM9RVmL77JRP5X8rg_MoFhIU3i";
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const EMAIL_DOMAIN = "@reliefsys.local";   // usernames log in as <username>@reliefsys.local
+
+    // Everything below is loaded from the database by load() after login.
+    // P = every account's username and role (to show who registered / verified)
+    // A = accounts with sign-up details, for the Users page (Admins only: idn is the full ID number)
+    let P = [], A = [];
 
     // Beneficiaries  (dob = birthdate, fam = family size, cats = claimed categories (senior is added
-    //                 from the birthdate), inc = income bracket, idt/idn = ID type/number,
-    //                 ver = ID verified, done = already served, by/verBy = who registered/verified,
-    //                 flags = warnings found when saved)
-    let B = [
-      { id: 1, name: "Maria Santos",  brgy: "Brgy. Sabang",   dob: "1958-03-12", fam: 4, cats: [],                                                  inc: 0, idt: IDS[2], idn: "SC-20481",  ver: true,  done: false, by: "vol_juan", verBy: "lgu_lipa" },
-      { id: 2, name: "Ana Reyes",     brgy: "Brgy. Marawoy",  dob: "1999-05-20", fam: 3, cats: ["Pregnant woman", "Person with disability (PWD)"], inc: 1, idt: IDS[0], idn: "1234-5678", ver: true,  done: false, by: "vol_juan", verBy: "lgu_lipa" },
-      { id: 3, name: "Pedro Cruz",    brgy: "Brgy. Antipolo", dob: "1985-01-09", fam: 5, cats: [],                                                  inc: 2, idt: IDS[3], idn: "VR-77120",  ver: true,  done: false, by: "vol_juan", verBy: "lgu_lipa" },
-      { id: 4, name: "Liza Bautista", brgy: "Brgy. Sabang",   dob: "1991-07-30", fam: 3, cats: ["Single parent household"],                         inc: 0, idt: IDS[5], idn: "BC-0915",   ver: false, done: false, by: "vol_juan" },
-      { id: 5, name: "Jose Dizon",    brgy: "Brgy. Mataas",   dob: "1974-02-11", fam: 6, cats: ["Person with disability (PWD)"],                    inc: 0, idt: IDS[1], idn: "PWD-30918", ver: true,  done: false, by: "vol_juan", verBy: "lgu_lipa" },
-      { id: 6, name: "Carlo Tan",     brgy: "Brgy. Sabang",   dob: "1977-06-18", fam: 3, cats: ["Person with disability (PWD)"],                    inc: 3, idt: IDS[1], idn: "PWD-55120", ver: true,  done: false, by: "vol_juan", verBy: "lgu_lipa" },
-      { id: 7, name: "Rosa Lim",      brgy: "Brgy. Marawoy",  dob: "1981-04-25", fam: 4, cats: ["Indigent"],                                        inc: 0, idt: IDS[0], idn: "8765-4321", ver: true,  done: true,  by: "vol_juan", verBy: "lgu_lipa" },
-      { id: 8, name: "Carmen Villa",  brgy: "Brgy. Mataas",   dob: "1919-08-14", fam: 2, cats: [],                                                  inc: 0, idt: IDS[5], idn: "BC-1123",   ver: false, done: false, by: "vol_juan" }
-    ];
+    //                 from the birthdate), inc = income bracket, idt = ID type, idn = last 4 of the ID number
+    //                 (the full number never leaves the database), ver = ID verified, done = already served,
+    //                 by/verBy = who registered/verified, flags = warnings that need a closer look)
+    let B = [];
 
     // Sponsors
-    let S = [
-      { id: 1, name: "Rotary Club of Lipa", type: "Organization", contact: "rotary@email.com" },
-      { id: 2, name: "ABC Foods Inc.",      type: "Company",      contact: "0920-555-6666" }
-    ];
+    let S = [];
 
     // Relief categories: what the goods are for (DSWD / Sphere-style groupings)
     const CATS = ["Food", "Water", "Hygiene & Sanitation", "Health / Medical", "Shelter", "Clothing", "Household"];
@@ -502,7 +497,7 @@
       count:  { label: "Pieces / kits (by count)", base: "pcs", units: { pcs: 1 } }
     };
 
-    // Sample expiry dates relative to today
+    // Local date n days from now (used for "expires within a week")
     const inDays = n => {                                                 // local date n days from now, yyyy-mm-dd
       const d = new Date(Date.now() + n * 864e5), p = v => String(v).padStart(2, "0");
       return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -510,32 +505,16 @@
 
     // Inventory  (don = donated, dist = distributed, per = amount given per family, all in the base unit)
     // lots = stock batches still on hand. Perishable lots have an expiry date and go out soonest-expiring first (FEFO).
-    let I = [
-      { item: "Rice",          cat: "Food",                 measure: "mass",   perish: false, don: 500,  dist: 5, per: 5,
-        lots: [{ q: 495, exp: "" }] },
-      { item: "Canned goods",  cat: "Food",                 measure: "count",  perish: true,  don: 300,  dist: 4, per: 4,
-        lots: [{ q: 296, exp: inDays(400) }] },
-      { item: "Milk",          cat: "Food",                 measure: "volume", perish: true,  don: 1050, dist: 0, per: 1,
-        lots: [{ q: 1000, exp: inDays(5) }, { q: 50, exp: inDays(90) }] },
-      { item: "Bottled water", cat: "Water",                measure: "volume", perish: false, don: 400,  dist: 6, per: 6,
-        lots: [{ q: 394, exp: "" }] },
-      { item: "Hygiene kits",  cat: "Hygiene & Sanitation", measure: "count",  perish: false, don: 100,  dist: 1, per: 1,
-        lots: [{ q: 99, exp: "" }] }
-    ];
+    let I = [];
 
     // Distribution history
-    let D = [
-      { id: 1, date: "2026-10-05", ben: "Rosa Lim", items: "Rice 5 kg, Canned goods 4 pcs, Bottled water 6 L, Hygiene kits 1 pcs", by: "LGU Personnel" }
-    ];
+    let D = [];
 
     // Donation records  (got = what was handed over, q = amount added to stock in the base unit)
-    let DON = [
-      { date: "2026-10-04", sp: "Rotary Club of Lipa", item: "Rice", got: "300 kg (bulk)",        q: 300,  exp: "" },
-      { date: "2026-10-06", sp: "ABC Foods Inc.",      item: "Milk", got: "100 × 500 mL packs",   q: 50,   exp: inDays(90) },
-      { date: "2026-10-07", sp: "Rotary Club of Lipa", item: "Milk", got: "1000 L (bulk)",        q: 1000, exp: inDays(5) }
-    ];
+    let DON = [];
 
-    let role = "", user = "", cur = "Dashboard", toured = false;
+    // me = the logged-in account's id in the database
+    let role = "", user = "", me = "", cur = "Dashboard", toured = false, busy = false;
 
     // Pages each role can open
     const MENU = {
@@ -561,17 +540,6 @@
     const soon = x => nextExp(x) && nextExp(x) <= inDays(7);              // expires within a week
     const families = x => Math.floor(rem(x) / x.per);                     // families this item can still cover
 
-    // Takes one family's share from the soonest-expiring lots first (FEFO). No-expiry lots go last.
-    function take(x, amount) {
-      const order = usable(x).sort((a, b) => (a.exp || "9999") < (b.exp || "9999") ? -1 : 1);
-      for (const lot of order) {
-        const t = Math.min(lot.q, amount);
-        lot.q = num(lot.q - t);
-        amount = num(amount - t);
-        if (!amount) break;
-      }
-      x.lots = x.lots.filter(l => l.q > 0);
-    }
     const staff = () => role === "Admin" || role === "LGU Personnel";     // can verify / delete
     const pad2 = n => String(n).padStart(2, "0");
     const today = () => {                                                 // local date, yyyy-mm-dd
@@ -633,6 +601,103 @@
       .sort((a, b) => tier(a) - tier(b) || vulns(b) - vulns(a) || a.inc - b.inc || a.id - b.id);
 
     const pend = () => B.filter(b => !b.ver);
+
+
+    /* =========================================================
+       DATABASE (Supabase)
+       load() fills the arrays above, so the pages read them as before.
+       Every change is written to the database first, then load() runs again.
+       ========================================================= */
+
+    const uname = id => (P.find(p => p.id === id) || {}).username || "—";
+
+    // Turns a database error into a message people can act on
+    function errMsg(e) {
+      if (e.code === "23505") return "That already exists (same ID number, name + birthdate, or item name)";
+      if (e.code === "42501") return "Your role isn't allowed to do that";
+      return e.message || "Something went wrong. Check your internet connection";
+    }
+
+    async function load() {
+      const [pr, ben, sp, it, lots, don, dist] = await Promise.all([
+        sb.from("profiles").select("id, username, name, role, status").order("created_at"),
+        sb.from("beneficiaries")
+          .select("id, name, brgy, contact, dob, fam, cats, inc, id_type, id_last4, verified, served, registered_by, verified_by")
+          .order("id"),
+        sb.from("sponsors").select("*").order("id"),
+        sb.from("item_totals").select("*").order("id"),
+        sb.from("stock_lots").select("item_id, qty, exp").gt("qty", 0),
+        sb.from("donations").select("date, sponsor_id, item_id, received_as, qty, exp").order("id", { ascending: false }),
+        sb.from("distributions")
+          .select("id, date, beneficiary_id, served_by, served_role, distribution_items(item_id, qty)")
+          .order("id", { ascending: false })
+      ]);
+      const failed = [pr, ben, sp, it, lots, don, dist].find(r => r.error);
+      if (failed) { toast(errMsg(failed.error)); return false; }
+
+      P = pr.data;
+      B = ben.data.map(b => ({
+        id: b.id, name: b.name, brgy: b.brgy, contact: b.contact, dob: b.dob, fam: b.fam, cats: b.cats,
+        inc: b.inc, idt: b.id_type, idn: b.id_last4, ver: b.verified, done: b.served,
+        byId: b.registered_by, by: uname(b.registered_by), verBy: b.verified_by ? uname(b.verified_by) : ""
+      }));
+      B.forEach(b => b.flags = flagsOf(b));
+      S = sp.data;
+      I = it.data.map(x => ({
+        id: x.id, item: x.name, cat: x.cat, measure: x.measure, per: +x.per, perish: x.perish,
+        don: num(x.don), dist: num(x.dist),
+        lots: lots.data.filter(l => l.item_id === x.id).map(l => ({ q: +l.qty, exp: l.exp || "" }))
+      }));
+
+      const itemName = id => (I.find(x => x.id === id) || {}).item || "—";
+      DON = don.data.map(d => ({
+        date: d.date, sp: (S.find(s => s.id === d.sponsor_id) || {}).name || "—",
+        item: itemName(d.item_id), got: d.received_as, q: +d.qty, exp: d.exp || ""
+      }));
+      D = dist.data.map(d => ({
+        id: d.id, date: d.date,
+        ben: (B.find(b => b.id === d.beneficiary_id) || {}).name || "—",
+        items: d.distribution_items.map(di => {
+          const x = I.find(i => i.id === di.item_id);
+          return `${itemName(di.item_id)} ${+di.qty} ${x ? unit(x) : ""}`;
+        }).join(", "),
+        by: `${uname(d.served_by)} · ${d.served_role || ""}`
+      }));
+
+      // Sign-up details (ID submitted, QR) are only readable by Admins
+      A = [];
+      if (role === "Admin") {
+        const det = await sb.from("account_details").select("*");
+        if (det.error) { toast(errMsg(det.error)); return false; }
+        A = P.map(p => {
+          const d = det.data.find(x => x.id === p.id) || {};
+          return { id: p.id, u: p.username, name: p.name, role: p.role, st: p.status,
+                   idt: d.id_type, idn: d.id_no || "", qr: d.via_qr };
+        });
+      }
+      return true;
+    }
+
+    // Runs one database change, reloads the data, and shows `ok` if it worked.
+    // Ignores repeat clicks while a save is still running.
+    async function act(call, ok) {
+      if (busy) return false;
+      busy = true;
+      document.body.style.cursor = "progress";
+      try {
+        const { error } = await call;
+        if (error) { toast(errMsg(error)); return false; }
+        await load();
+        if (ok) toast(ok);
+        return true;
+      } catch (e) {
+        toast("Can't reach the database. Check your internet connection");
+        return false;
+      } finally {
+        busy = false;
+        document.body.style.cursor = "";
+      }
+    }
 
 
     /* =========================================================
@@ -754,10 +819,6 @@
 
     function showLogin() {
       stopCam();
-      const demoChips = A.slice(0, 4)
-        .map(a => `<button class="chip" onclick="$('u').value='${a.u}';$('p').value='${a.p}'">${a.role}</button>`)
-        .join("");
-
       $("lbox").className = "box";
       $("lbox").innerHTML = `
         <h2 style="font-size:24px">Sign in</h2>
@@ -772,10 +833,7 @@
         <button class="btn" style="width:100%;margin-top:6px" onclick="login()">Log in</button>
         <button class="btn o" style="width:100%;margin-top:8px" onclick="showSignup()">Create an account</button>
 
-        <div class="note">
-          Demo accounts (tap to fill):
-          <div class="chips">${demoChips}</div>
-        </div>`;
+        <div class="note">New here? Create an account. An Admin approves it before you can log in.</div>`;
     }
 
     function showSignup() {
@@ -850,15 +908,14 @@
       box.classList.add("shake");
     }
 
-    function signup() {
+    async function signup() {
       const g = i => $("s" + i).value.trim();
 
       if (!g(1) || !g(2) || !g(3) || !g(7) || !g(9)) return bad("Fill in name, birthdate, address, ID number and username.");
       const age = ageOf(g(2));
       if (isNaN(age) || age < 0 || age > MAX_AGE)   return bad("Enter a real birthdate (not in the future, not over " + MAX_AGE + " years ago).");
       if (!/^\w{3,20}$/.test(g(9)))                 return bad("Username: 3–20 letters, numbers or _ only.");
-      if (g(10).length < 6)                          return bad("Password needs at least 6 characters.");
-      if (A.some(a => a.u === g(9)))                 return bad("That username is taken. Try another.");
+      if ($("s10").value.length < 6)                 return bad("Password needs at least 6 characters.");
 
       // Marked "QR" only if the scanned values were left unchanged
       const viaQR = !!qr
@@ -867,27 +924,55 @@
         && g(1) === qr.name
         && g(2) === qr.dob;
 
-      A.push({
-        u: g(9), p: g(10), role: g(8), name: g(1), st: "Pending",
-        idt: g(6), idn: g(7), addr: g(3), contact: g(4), org: g(5), dob: g(2),
-        qr: viaQR
+      // The database trigger turns this into a Pending profile; it never accepts "Admin" from here
+      const { error } = await sb.auth.signUp({
+        email: g(9).toLowerCase() + EMAIL_DOMAIN,
+        password: $("s10").value,
+        options: { data: {
+          username: g(9).toLowerCase(), name: g(1), role: g(8), dob: g(2), address: g(3),
+          contact: g(4), org: g(5), id_type: g(6), id_no: g(7), via_qr: viaQR
+        } }
       });
+      if (error) {
+        return bad(/already registered|already exists|duplicate|saving new user/i.test(error.message)
+          ? "That username is taken. Try another." : error.message);
+      }
 
+      await sb.auth.signOut();   // signing up logs you in, but the account isn't approved yet
       showLogin();
       toast("Account submitted · waiting for Admin approval");
     }
 
-    function login() {
-      const a = A.find(x => x.u === $("u").value.trim() && x.p === $("p").value);
+    async function login() {
+      const username = $("u").value.trim().toLowerCase();
+      const { error } = await sb.auth.signInWithPassword({ email: username + EMAIL_DOMAIN, password: $("p").value });
+      if (error) return bad(/invalid login credentials/i.test(error.message)
+        ? "Wrong username or password." : "Can't log in: " + error.message);
+      enter();
+    }
 
-      if (!a)                 return bad("Wrong username or password.");
-      if (a.st !== "Active")  return bad("Your account is still waiting for Admin approval.");
+    // Opens the app for whoever is signed in. Used after login and when a saved session is found.
+    async function enter() {
+      const { data: { user: u } } = await sb.auth.getUser();
+      if (!u) return showLogin();
 
-      role = a.role;
-      user = a.u;
+      const { data: p } = await sb.from("profiles").select("username, role, status").eq("id", u.id).single();
+      if (!p || p.status !== "Active") {
+        await sb.auth.signOut();
+        showLogin();
+        return bad(!p ? "No profile found for this account. Ask an Admin."
+          : p.status === "Pending" ? "Your account is still waiting for Admin approval."
+          : "This account is " + p.status.toLowerCase() + ". Ask an Admin.");
+      }
+
+      me = u.id;
+      role = p.role;
+      user = p.username;
+      if (!(await load())) return;
+
       $("login").style.display = "none";
       $("app").style.display = "block";
-      $("who").textContent = a.u + " · " + role;
+      $("who").textContent = user + " · " + role;
       go("Dashboard");
       toast("Login successful");
 
@@ -898,7 +983,10 @@
       }
     }
 
-    function logout() {
+    async function logout() {
+      await sb.auth.signOut();
+      role = user = me = "";
+      P = A = B = S = I = D = DON = [];
       $("app").style.display = "none";
       $("login").style.display = "grid";
       showLogin();
@@ -1250,27 +1338,25 @@
     // Buttons in the Users table: approve/reject new accounts, or turn existing ones on/off
     function userActions(a) {
       if (a.st === "Pending") {
-        return `<button class="btn s" onclick="setSt('${a.u}','Active')">Approve</button>
-                <button class="btn o s" onclick="setSt('${a.u}','Rejected')">Reject</button>`;
+        return `<button class="btn s" onclick="setSt('${a.id}','Active')">Approve</button>
+                <button class="btn o s" onclick="setSt('${a.id}','Rejected')">Reject</button>`;
       }
-      if (a.u === user) return "";   // can't deactivate yourself
+      if (a.id === me) return "";   // can't deactivate yourself
 
       const next = a.st === "Active" ? "Deactivated" : "Active";
       const label = a.st === "Active" ? "Deactivate" : "Activate";
-      return `<button class="btn o s" onclick="setSt('${a.u}','${next}')">${label}</button>`;
+      return `<button class="btn o s" onclick="setSt('${a.id}','${next}')">${label}</button>`;
     }
 
-    function setSt(username, status) {
-      A.find(a => a.u === username).st = status;
-      go("Users");
-      toast("Account " + status.toLowerCase());
+    async function setSt(id, status) {
+      if (await act(sb.from("profiles").update({ status }).eq("id", id), "Account " + status.toLowerCase())) go("Users");
     }
 
     // Verification: the verifier ticks each proof they actually saw. Must be a different person
     // from whoever registered the record.
     function ver(id) {
       const b = B.find(x => x.id === id);
-      if (b.by === user) return toast("You registered this person. Another LGU or Admin must verify them");
+      if (b.byId === me) return toast("You registered this person. Another LGU or Admin must verify them");
 
       const proofs = cats(b).filter(c => c !== REG).map(c => `
         <label><input type="checkbox" class="pf" value="${c}">
@@ -1306,7 +1392,7 @@
         </div>`);
     }
 
-    function confirmVer(id) {
+    async function confirmVer(id) {
       const b = B.find(x => x.id === id);
       const seen = [...document.querySelectorAll(".pf:checked")].map(x => x.value);
       const err = m => { $("verr").textContent = m; };
@@ -1315,14 +1401,14 @@
       if (cats(b).includes(SENIOR) && !seen.includes(SENIOR)) return err("No proof of age. Delete this record and register it again with the right birthdate.");
       if (b.flags.length && !$("vf").checked)            return err("Review the warnings first.");
 
+      // The database keeps only the categories with proof and records who verified
       const removed = b.cats.filter(c => !seen.includes(c));
-      b.cats = b.cats.filter(c => seen.includes(c));
-      b.ver = true;
-      b.verBy = user;
+      const ok = await act(sb.rpc("verify_beneficiary", { ben_id: id, keep_cats: seen }),
+        removed.length ? "Verified · removed (no proof): " + removed.join(", ") : "ID verified · added to priority queue");
+      if (!ok) return;
 
       close_();
       go("Beneficiaries");
-      toast(removed.length ? "Verified · removed (no proof): " + removed.join(", ") : "ID verified · added to priority queue");
     }
 
 
@@ -1394,7 +1480,7 @@
         : `Age ${a}${a >= 60 ? " · counts as senior" : ""}${a > 100 ? " · will be flagged for review" : ""}`;
     }
 
-    function saveB() {
+    async function saveB() {
       const name = $("f1").value.trim();
       const dob = $("f3").value;
       const age = ageOf(dob);
@@ -1407,39 +1493,38 @@
       if (age > MAX_AGE)                               return toast(`Birthdate is over ${MAX_AGE} years ago. Check the ID`);
       if (!Number.isInteger(fam) || fam < 1 || fam > 30) return toast("Family members must be a whole number from 1 to 30");
 
-      // Same ID number, or same name + birthdate, means this person is already registered
+      // Same name + birthdate means this person is already registered. The database also
+      // blocks a repeated ID number (the page only has the last 4 digits, so it can't check that itself).
       const key = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
-      const dup = B.find(b => key(b.idn) === key(idNumber) || (key(b.name) === key(name) && b.dob === dob));
+      const dup = B.find(b => key(b.name) === key(name) && b.dob === dob);
       if (dup) return toast(`Already registered as ${dup.name}. Duplicates aren't allowed`);
 
       const b = {
-        id: Date.now(),
         name,
         brgy: $("f2").value.trim() || "—",
+        contact: $("f4").value.trim() || null,
         dob,
         fam,
         cats: [...document.querySelectorAll(".cat:checked")].map(x => x.value),
         inc: +$("f7").value,
-        idt: $("f8").value,
-        idn: idNumber,
-        ver: false,
-        done: false,
-        by: user
+        id_type: $("f8").value,
+        id_no: idNumber,
+        registered_by: me
       };
-      b.flags = flagsOf(b);
-      B.push(b);
+      const flagged = flagsOf({ ...b, idt: b.id_type }).length;
+
+      const ok = await act(sb.from("beneficiaries").insert(b),
+        flagged ? "Saved · flagged for review before verification" : "Saved · waiting for ID verification");
+      if (!ok) return;
 
       close_();
       go("Beneficiaries");
-      toast(b.flags.length ? "Saved · flagged for review before verification" : "Saved · waiting for ID verification");
     }
 
-    function delB(id) {
+    async function delB(id) {
       if (!confirm("Delete " + B.find(b => b.id === id).name + "? This cannot be undone.")) return;
 
-      B = B.filter(b => b.id !== id);
-      go("Beneficiaries");
-      toast("Record deleted");
+      if (await act(sb.from("beneficiaries").delete().eq("id", id), "Record deleted")) go("Beneficiaries");
     }
 
     // ----- Distribution -----
@@ -1467,26 +1552,16 @@
         </div>`);
     }
 
-    function confirmServe(id) {
+    async function confirmServe(id) {
       const low = I.find(x => rem(x) < x.per);
       if (low) {
         toast("Not enough " + low.item + " for one family");
         return;
       }
 
-      const b = B.find(x => x.id == id);
-      I.forEach(x => {
-        take(x, x.per);
-        x.dist = num(x.dist + x.per);
-      });
-      b.done = true;
-      D.unshift({
-        id: Date.now(),
-        date: today(),
-        ben: b.name,
-        items: I.map(x => `${x.item} ${x.per} ${unit(x)}`).join(", "),
-        by: role
-      });
+      // The database takes the stock soonest-expiring first, marks the person served and saves
+      // the history in one step, so two people serving at once can't give out the same stock
+      if (!(await act(sb.rpc("serve_beneficiary", { ben_id: id })))) return;
 
       // Slide the card out, then refresh the queue
       close_();
@@ -1520,17 +1595,19 @@
         </div>`);
     }
 
-    function saveItem() {
+    async function saveItem() {
       const name = $("f1").value.trim() || "Item";
       if (I.some(x => x.item.toLowerCase() === name.toLowerCase())) return toast("That item already exists");
       const per = +$("f2").value;
       if (!(per > 0)) return toast("Quantity per family must be more than 0");
 
-      I.push({ item: name, cat: $("f3").value, measure: $("f4").value, perish: $("f5").checked,
-               don: 0, dist: 0, per: num(per), lots: [] });
+      const ok = await act(sb.from("items").insert({
+        name, cat: $("f3").value, measure: $("f4").value, perish: $("f5").checked, per: num(per)
+      }), "Item added");
+      if (!ok) return;
+
       close_();
       go("Inventory");
-      toast("Item added");
     }
 
     // ----- Sponsors & donations -----
@@ -1554,17 +1631,20 @@
         </div>`);
     }
 
-    function saveSp() {
-      S.push({ id: Date.now(), name: $("f1").value || "Unnamed", type: $("f2").value, contact: $("f3").value });
+    async function saveSp() {
+      const ok = await act(sb.from("sponsors").insert({
+        name: $("f1").value.trim() || "Unnamed", type: $("f2").value, contact: $("f3").value.trim()
+      }), "Sponsor saved");
+      if (!ok) return;
+
       close_();
       go("Sponsors & Donations");
-      toast("Sponsor saved");
     }
 
     function addDon() {
       if (!S.length) return toast("Add a sponsor first");
       if (!I.length) return toast("Add a relief item first");
-      const sponsors = S.map(s => `<option>${esc(s.name)}</option>`).join("");
+      const sponsors = S.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("");
       const items = I.map((x, i) => `<option value="${i}">${esc(x.item)} (${unit(x)})</option>`).join("");
 
       modal(`
@@ -1625,7 +1705,7 @@
       return { total, got };
     }
 
-    function saveDon() {
+    async function saveDon() {
       const x = I[$("f2").value];
       const { total, got } = donCalc();
       const exp = x.perish ? $("f9").value : "";
@@ -1634,13 +1714,14 @@
       if (x.perish && !exp) return toast("Perishable item · enter the expiry date");
       if (exp && exp < today()) return toast("That stock is already expired · do not accept it");
 
-      x.don = num(x.don + total);
-      x.lots.push({ q: total, exp });
-      DON.unshift({ date: today(), sp: $("f1").value, item: x.item, got, q: total, exp });
+      // Adds the stock batch and the donation record together
+      const ok = await act(sb.rpc("record_donation", {
+        p_sponsor: +$("f1").value, p_item: x.id, p_received_as: got, p_qty: total, p_exp: exp || null
+      }), `Donation recorded · +${total} ${unit(x)} ${x.item}`);
+      if (!ok) return;
 
       close_();
       go("Sponsors & Donations");
-      toast(`Donation recorded · +${total} ${unit(x)} ${x.item}`);
     }
 
     // ----- Reports -----
@@ -1675,8 +1756,9 @@
     /* =========================================================
        START
        ========================================================= */
-    B.forEach(b => b.flags = flagsOf(b));
+    // Stay logged in after a page refresh if the browser still has a session
     showLogin();
+    sb.auth.getSession().then(({ data }) => { if (data.session) enter(); });
   </script>
 </body>
 </html>
