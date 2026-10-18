@@ -497,6 +497,13 @@
       count:  { label: "Pieces / kits (by count)", base: "pcs", units: { pcs: 1 } }
     };
 
+    // The usual way to count each category, pre-selected in "Add relief item" (it can still be changed).
+    // Clothes, kits and tarps are handed out as pieces, never by weight.
+    const CAT_MEASURE = {
+      "Food": "mass", "Water": "volume", "Hygiene & Sanitation": "count", "Health / Medical": "count",
+      "Shelter": "count", "Clothing": "count", "Household": "count"
+    };
+
     // Local date n days from now (used for "expires within a week")
     const inDays = n => {                                                 // local date n days from now, yyyy-mm-dd
       const d = new Date(Date.now() + n * 864e5), p = v => String(v).padStart(2, "0");
@@ -513,15 +520,29 @@
     // Donation records  (got = what was handed over, q = amount added to stock in the base unit)
     let DON = [];
 
+    // Stock movements: hand adjustments and write-offs (q is signed: + added, − removed)
+    let M = [];
+    const MOVES = {
+      damaged:      "Damaged",
+      lost:         "Lost / stolen",
+      recount_less: "Recount: less than recorded",
+      recount_more: "Recount: more than recorded",
+      expired:      "Expired (written off)",
+      sorted_out:   "Sorted / repacked: taken",
+      sorted_in:    "Sorted / repacked: made"
+    };
+    const HAND_ADJ = ["damaged", "lost", "recount_less", "recount_more"];   // the ones picked in "Stock adjustment"
+
     // me = the logged-in account's id in the database
     let role = "", user = "", me = "", cur = "Dashboard", toured = false, busy = false;
 
-    // Pages each role can open
+    // Pages each role can open. Logistics handles the goods, not the people, so it never sees beneficiaries.
     const MENU = {
-      "Admin":         ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sponsors & Donations", "Distribution History", "Reports", "Users"],
-      "LGU Personnel": ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sponsors & Donations", "Distribution History", "Reports"],
-      "NGO Staff":     ["Dashboard", "Priority Queue", "Inventory", "Sponsors & Donations", "Distribution History", "Reports"],
-      "Volunteer":     ["Dashboard", "Beneficiaries", "Priority Queue"]
+      "Admin":             ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Stock Movements", "Sponsors & Donations", "Distribution History", "Reports", "Users"],
+      "LGU Personnel":     ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sponsors & Donations", "Distribution History", "Reports"],
+      "NGO Staff":         ["Dashboard", "Priority Queue", "Inventory", "Sponsors & Donations", "Distribution History", "Reports"],
+      "Logistics Officer": ["Dashboard", "Inventory", "Stock Movements", "Sponsors & Donations", "Distribution History", "Reports"],
+      "Volunteer":         ["Dashboard", "Beneficiaries", "Priority Queue"]
     };
 
 
@@ -538,9 +559,15 @@
     const spoiled = x => num(x.lots.filter(expired).reduce((s, l) => s + l.q, 0));
     const nextExp = x => usable(x).map(l => l.exp).filter(Boolean).sort()[0] || "";
     const soon = x => nextExp(x) && nextExp(x) <= inDays(7);              // expires within a week
-    const families = x => Math.floor(rem(x) / x.per);                     // families this item can still cover
+    const families = x => Math.floor(rem(x) / x.per);                     // families (or people) this item can still cover
+    const whom = x => x.basis === "person" ? "person" : "family";
+    const reach = x => !x.give ? "not given out" : `${families(x)} ${x.basis === "person" ? "people" : "families"}`;
+    const share = (x, fam) => num(x.per * (x.basis === "person" ? fam : 1));   // what one family gets
+    const given = () => I.filter(x => x.give);                            // items handed to families
 
     const staff = () => role === "Admin" || role === "LGU Personnel";     // can verify / delete
+    const logi = () => role === "Admin" || role === "Logistics Officer";  // can adjust / write off stock
+    const people = () => role !== "Logistics Officer";                    // can see beneficiary records
     const pad2 = n => String(n).padStart(2, "0");
     const today = () => {                                                 // local date, yyyy-mm-dd
       const d = new Date();
@@ -619,7 +646,7 @@
     }
 
     async function load() {
-      const [pr, ben, sp, it, lots, don, dist] = await Promise.all([
+      const [pr, ben, sp, it, lots, don, dist, mov] = await Promise.all([
         sb.from("profiles").select("id, username, name, role, status").order("created_at"),
         sb.from("beneficiaries")
           .select("id, name, brgy, contact, dob, fam, cats, inc, id_type, id_last4, verified, served, registered_by, verified_by")
@@ -630,9 +657,10 @@
         sb.from("donations").select("date, sponsor_id, item_id, received_as, qty, exp").order("id", { ascending: false }),
         sb.from("distributions")
           .select("id, date, beneficiary_id, served_by, served_role, distribution_items(item_id, qty)")
-          .order("id", { ascending: false })
+          .order("id", { ascending: false }),
+        sb.from("stock_movements").select("at, item_id, kind, qty, reason, by_user").order("id", { ascending: false })
       ]);
-      const failed = [pr, ben, sp, it, lots, don, dist].find(r => r.error);
+      const failed = [pr, ben, sp, it, lots, don, dist, mov].find(r => r.error);
       if (failed) { toast(errMsg(failed.error)); return false; }
 
       P = pr.data;
@@ -645,7 +673,8 @@
       S = sp.data;
       I = it.data.map(x => ({
         id: x.id, item: x.name, cat: x.cat, measure: x.measure, per: +x.per, perish: x.perish,
-        don: num(x.don), dist: num(x.dist),
+        basis: x.basis, give: x.distribute,
+        don: num(x.don), dist: num(x.dist), adj: num(x.adj),
         lots: lots.data.filter(l => l.item_id === x.id).map(l => ({ q: +l.qty, exp: l.exp || "" }))
       }));
 
@@ -656,12 +685,16 @@
       }));
       D = dist.data.map(d => ({
         id: d.id, date: d.date,
-        ben: (B.find(b => b.id === d.beneficiary_id) || {}).name || "—",
+        ben: (B.find(b => b.id === d.beneficiary_id) || {}).name || (people() ? "—" : "Private"),
         items: d.distribution_items.map(di => {
           const x = I.find(i => i.id === di.item_id);
           return `${itemName(di.item_id)} ${+di.qty} ${x ? unit(x) : ""}`;
         }).join(", "),
         by: `${uname(d.served_by)} · ${d.served_role || ""}`
+      }));
+      M = mov.data.map(m => ({
+        date: m.at.slice(0, 10), item: itemName(m.item_id), kind: m.kind, q: +m.qty,
+        unit: (x => x ? unit(x) : "")(I.find(i => i.id === m.item_id)), reason: m.reason, by: uname(m.by_user)
       }));
 
       // Sign-up details (ID submitted, QR) are only readable by Admins
@@ -884,6 +917,7 @@
               <option>Volunteer</option>
               <option>NGO Staff</option>
               <option>LGU Personnel</option>
+              <option>Logistics Officer</option>
             </select>
           </div>
           <div><label>Username</label><input id="s9"></div>
@@ -914,7 +948,11 @@
       if (!g(1) || !g(2) || !g(3) || !g(7) || !g(9)) return bad("Fill in name, birthdate, address, ID number and username.");
       const age = ageOf(g(2));
       if (isNaN(age) || age < 0 || age > MAX_AGE)   return bad("Enter a real birthdate (not in the future, not over " + MAX_AGE + " years ago).");
-      if (!/^\w{3,20}$/.test(g(9)))                 return bad("Username: 3–20 letters, numbers or _ only.");
+      if (!/^\w{3,20}$/.test(g(9))) {
+        const odd = [...new Set(g(9).replace(/\w/g, ""))].map(c => c === " " ? "spaces" : `"${c}"`);
+        return bad("Username: 3–20 letters, numbers or _ only. " + (odd.length ? "Remove " + odd.join(", ") + "."
+          : g(9).length < 3 ? "Too short." : `Too long (${g(9).length} characters).`));
+      }
       if ($("s10").value.length < 6)                 return bad("Password needs at least 6 characters.");
 
       // Marked "QR" only if the scanned values were left unchanged
@@ -986,7 +1024,7 @@
     async function logout() {
       await sb.auth.signOut();
       role = user = me = "";
-      P = A = B = S = I = D = DON = [];
+      P = A = B = S = I = D = DON = M = [];
       $("app").style.display = "none";
       $("login").style.display = "grid";
       showLogin();
@@ -1042,29 +1080,40 @@
        TUTORIAL
        ========================================================= */
 
+    // [title, text, demo ("q" = animated queue), roles that see this step (all if left out)]
+    const ALL_BUT_LOGI = ["Admin", "LGU Personnel", "NGO Staff", "Volunteer"];
     const TUT = [
       ["Welcome to ReliefSys",
        "This 1-minute tour shows how to run a relief distribution. Reopen it any time with <b>How to use</b> at the top right."],
-      ["1. Read the dashboard",
+      ["Read the dashboard",
        "The dashboard shows registered beneficiaries, the queue size, and how many families the stock can still serve, and which items expire soon. Stock is grouped by category. It updates after every action."],
-      ["2. Register beneficiaries",
-       "Open <b>Beneficiaries</b> and press <b>Register</b>. Enter the person's details and birthdate, tick <b>every</b> category that applies, then add household income and ID. Senior citizen is set automatically from the birthdate. A different LGU or Admin must check the ID and proof for each category before the person joins the queue. No ID? Choose the barangay certificate so poor families are not left out.", "b"],
-      ["3. Understand the priority queue",
-       "Order is decided in four steps: vulnerability group first, then how many high-priority needs the person has (a pregnant PWD before someone only pregnant), then household income with the poorest first, then who registered earlier. Donations and job titles never change the order.", "q"],
-      ["4. Serve the next person",
-       "In <b>Priority Queue</b>, press <b>Serve Next</b> on the first card. Check the goods list and confirm. Inventory goes down and the transaction is saved.", "i"],
-      ["5. Record donations",
-       "In <b>Sponsors & Donations</b>, add a sponsor, then record the donation. Choose bulk or packs and the unit (for example 100 bottles × 500 mL). The system converts it to the item's base unit, so 1000 L of bulk milk and 50 L of bottled milk go into the same stock. Perishables need an expiry date and are given out soonest-expiring first.", "i"],
-      ["6. Check reports and accounts",
-       "Use <b>Reports</b> to print or save PDF summaries. Admins approve new accounts in <b>Users</b> after checking their ID."]
+      ["Register beneficiaries",
+       "Open <b>Beneficiaries</b> and press <b>Register</b>. Enter the person's details and birthdate, tick <b>every</b> category that applies, then add household income and ID. Senior citizen is set automatically from the birthdate. A different LGU or Admin must check the ID and proof for each category before the person joins the queue. No ID? Choose the barangay certificate so poor families are not left out.", "b",
+       ["Admin", "LGU Personnel", "Volunteer"]],
+      ["Understand the priority queue",
+       "Order is decided in four steps: vulnerability group first, then how many high-priority needs the person has (a pregnant PWD before someone only pregnant), then household income with the poorest first, then who registered earlier. Donations and job titles never change the order.", "q", ALL_BUT_LOGI],
+      ["Serve the next person",
+       "In <b>Priority Queue</b>, press <b>Serve Next</b> on the first card. Check the goods list and confirm. Inventory goes down and the transaction is saved.", "i",
+       ALL_BUT_LOGI],
+      ["Record donations",
+       "In <b>Sponsors & Donations</b>, add a sponsor, then record the donation. Choose bulk or packs and the unit (for example 100 bottles × 500 mL). The system converts it to the item's base unit, so 1000 L of bulk milk and 50 L of bottled milk go into the same stock. Perishables need an expiry date and are given out soonest-expiring first.", "i",
+       ["Admin", "LGU Personnel", "NGO Staff", "Logistics Officer"]],
+      ["Manage the stock",
+       "In <b>Inventory</b>, press <b>Adjust</b> when goods are damaged, lost, or a recount doesn't match. Every change needs a reason and is saved in <b>Stock Movements</b> with your name. When stock expires, dispose of it and press <b>Write off expired</b>. Press <b>Sort</b> to turn mixed donations, like sacks of unsorted clothes, into the items families receive (men's, women's, children's clothes), and <b>Give out / Stop giving</b> to choose which items are handed out.", "i",
+       ["Admin", "Logistics Officer"]],
+      ["Check reports and accounts",
+       "Use <b>Reports</b> to print or save PDF summaries. Admins approve new accounts in <b>Users</b> after checking their ID.", "",
+       ["Admin", "LGU Personnel", "NGO Staff", "Logistics Officer"]]
     ];
 
     function tour(i) {
-      // Volunteers can't use donations, reports or accounts, so their tour ends after step 4
-      const t = (role === "Volunteer" && i >= 5) ? null : TUT[i];
+      // Each role only sees the steps for the pages it can use
+      const mine = TUT.filter(t => !t[3] || t[3].includes(role));
+      const t = mine[i];
       if (!t) return close_();
 
-      const steps = role === "Volunteer" ? 5 : TUT.length;
+      const steps = mine.length;
+      const title = i ? `${i}. ${t[0]}` : t[0];
       const dots = Array.from({ length: steps }, (_, k) => `<i class="${k <= i ? "on" : ""}"></i>`).join("");
       const queueDemo = `
         <div class="demo">
@@ -1074,7 +1123,7 @@
 
       modal(`
         <div class="in">
-          <h2 style="font-size:22px">${t[0]}</h2>
+          <h2 style="font-size:22px">${title}</h2>
           <div class="dots">${dots}</div>
           <p>${t[1]}</p>
           ${t[2] === "q" ? queueDemo : ""}
@@ -1096,12 +1145,19 @@
         const q = queue();
 
         // Items use different units (kg, L, pcs), so the dashboard counts families covered instead of adding amounts
+        // Logistics sees only the goods side
         const stats = [
-          [B.length, "Registered beneficiaries"],
-          [q.length, "Waiting in queue"],
-          [pend().length, "Need ID verification"],
+          ...(people() ? [
+            [B.length, "Registered beneficiaries"],
+            [q.length, "Waiting in queue"],
+            [pend().length, "Need ID verification"]
+          ] : [
+            [I.length, "Relief items"],
+            [M.length, "Stock adjustments"]
+          ]),
           [D.length, "Distributions recorded"],
-          [I.length ? Math.min(...I.map(families)) : 0, "Families stock can still serve"],
+          [(f => f.length ? Math.min(...f.map(families)) : 0)(given().filter(x => x.basis === "family")),
+            "Families stock can fully serve"],
           [I.filter(soon).length, "Items expiring within 7 days"],
           [I.filter(x => spoiled(x) > 0).length, "Items with expired stock"]
         ];
@@ -1114,17 +1170,20 @@
           <p style="margin:14px 0 0;font-size:12px;color:var(--mu)"><b>${c}</b></p>` +
           I.filter(x => x.cat === c).map(x => `
           <p style="margin:6px 0 3px">${esc(x.item)} <span style="color:var(--mu)">· ${rem(x)} ${unit(x)} left of ${x.don} ${unit(x)}
-            · ${families(x)} families</span>${soon(x) ? ` <span style="color:var(--p2)">· expires ${nextExp(x)}</span>` : ""}</p>
+            · ${reach(x)}</span>${soon(x) ? ` <span style="color:var(--p2)">· expires ${nextExp(x)}</span>` : ""}</p>
           <div class="bar"><i style="width:${x.don ? rem(x) / x.don * 100 : 0}%"></i></div>`).join("")).join("");
 
         const next = q[0]
           ? esc(q[0].name) + " " + tag(q[0]) + ` <span style="color:var(--mu)">· ${INC[q[0].inc]}</span>`
           : "No one waiting";
 
+        const expiredCount = I.filter(x => spoiled(x) > 0).length;
         return `
           <div class="grid">${statCards}</div>
+          ${logi() && expiredCount ? `<div class="card warn"><b>${expiredCount} item(s) have expired stock.</b>
+            Write it off in <a style="cursor:pointer;text-decoration:underline" onclick="go('Inventory')">Inventory</a> so it isn't counted or handed out.</div>` : ""}
           <div class="card"><b>Inventory status</b>${stockBars}</div>
-          <div class="card"><b>Next in queue:</b> ${next}</div>`;
+          ${people() ? `<div class="card"><b>Next in queue:</b> ${next}</div>` : ""}`;
       },
 
       Beneficiaries() {
@@ -1219,30 +1278,51 @@
               <td>${esc(x.item)}<br><span style="color:var(--mu);font-size:12px">${MEASURES[x.measure].label}</span></td>
               <td>${x.don} ${u}</td>
               <td>${x.dist} ${u}</td>
+              <td style="${x.adj < 0 ? "color:var(--p1)" : ""}">${x.adj > 0 ? "+" : ""}${x.adj} ${u}</td>
               <td><b>${rem(x)} ${u}</b></td>
-              <td>${x.per} ${u}<br><span style="color:var(--mu);font-size:12px">${families(x)} families</span></td>
+              <td>${x.give ? `${x.per} ${u} per ${whom(x)}<br><span style="color:var(--mu);font-size:12px">${reach(x)}</span>`
+                : `<span class="tag t0" title="Kept in storage. Sort or repack it into items that are given out">Not given out</span>`}</td>
               <td>${exp}</td>
               <td style="min-width:110px"><div class="bar"><i style="width:${pct}%;${low}"></i></div></td>
+              ${logi() ? `<td>
+                <button class="btn o s" onclick="addAdj(${x.id})">Adjust</button>
+                <button class="btn o s" onclick="addSort(${x.id})">Sort</button>
+                <button class="btn o s" onclick="setGive(${x.id}, ${!x.give})"
+                  title="${x.give ? "Stop handing this item to families" : "Start handing this item to families"}">${x.give ? "Stop giving" : "Give out"}</button>
+              </td>` : ""}
             </tr>`;
         };
 
         // Grouped by category
+        const cols = logi() ? 9 : 8;
         const rows = CATS.filter(c => I.some(x => x.cat === c)).map(c => `
-          <tr><td colspan="7" style="background:var(--bg);font-weight:600">${c}</td></tr>
+          <tr><td colspan="${cols}" style="background:var(--bg);font-weight:600">${c}</td></tr>
           ${I.filter(x => x.cat === c).map(row).join("")}`).join("");
+
+        const stale = I.filter(x => spoiled(x) > 0);
+        const writeOff = logi() && stale.length ? `
+          <div class="card warn">
+            <b>Expired stock:</b> ${stale.map(x => `${esc(x.item)} ${spoiled(x)} ${unit(x)}`).join(", ")}.
+            It is already left out of "Remaining". Write it off once it has been disposed of.
+            <button class="btn s" style="margin-left:8px" onclick="writeOff()">Write off expired</button>
+          </div>` : "";
 
         return `
           <div class="top">
             <span style="color:var(--mu)">All amounts are in each item's base unit. Perishables go out soonest-expiring first.</span>
             ${role !== "Volunteer" ? '<button class="btn a" onclick="addItem()">+ Add relief item</button>' : ""}
           </div>
+          ${writeOff}
 
           <div class="card tw">
             <table>
-              <tr><th>Item</th><th>Donated</th><th>Distributed</th><th>Remaining</th><th>Per family</th><th>Next expiry</th><th>Level</th></tr>
+              <tr><th>Item</th><th>Donated</th><th>Distributed</th><th>Adjusted / sorted</th><th>Remaining</th><th>Given out</th><th>Next expiry</th><th>Level</th>${logi() ? "<th></th>" : ""}</tr>
               ${rows}
             </table>
-          </div>`;
+          </div>
+          <div class="note">Remaining = donated − distributed ± adjustments and sorting, minus anything expired.
+            "Per person" items are multiplied by the family size when serving.
+            ${logi() ? "Use <b>Sort</b> to turn stock like unsorted clothes or bulk rice into items that are given out. Every change needs a note and is saved in Stock Movements." : ""}</div>`;
       },
 
       "Sponsors & Donations"() {
@@ -1283,6 +1363,31 @@
           </div>`;
       },
 
+      "Stock Movements"() {
+        const rows = M.map(m => `
+          <tr>
+            <td>${m.date}</td>
+            <td>${esc(m.item)}</td>
+            <td>${MOVES[m.kind] || m.kind}</td>
+            <td style="color:${m.q < 0 ? "var(--p1)" : "var(--ok)"}"><b>${m.q > 0 ? "+" : ""}${m.q} ${m.unit}</b></td>
+            <td style="white-space:normal">${esc(m.reason)}</td>
+            <td style="color:var(--mu)">${esc(m.by)}</td>
+          </tr>`).join("");
+
+        return `
+          <div class="top">
+            <span style="color:var(--mu)">Every stock change that isn't a donation or a distribution, with who did it and why.</span>
+            ${logi() ? '<button class="btn a" onclick="addAdj()">+ Stock adjustment</button>' : ""}
+          </div>
+
+          <div class="card tw">
+            <table>
+              <tr><th>Date</th><th>Item</th><th>Type</th><th>Change</th><th>Reason</th><th>By</th></tr>
+              ${rows || `<tr><td colspan="6" style="color:var(--mu)">No adjustments yet.</td></tr>`}
+            </table>
+          </div>`;
+      },
+
       "Distribution History"() {
         const rows = D
           .map(d => `<tr><td>${d.date}</td><td>${esc(d.ben)}</td><td>${esc(d.items)}</td><td>${d.by}</td></tr>`)
@@ -1298,7 +1403,8 @@
       },
 
       Reports() {
-        const buttons = ["Beneficiary", "Sponsor", "Inventory", "Donation", "Distribution"]
+        const buttons = ["Beneficiary", "Sponsor", "Inventory", "Stock movement", "Donation", "Distribution"]
+          .filter(r => (r !== "Beneficiary" || people()) && (r !== "Stock movement" || M.length || logi()))
           .map(r => `<button class="btn o" onclick="rep('${r}')">${r} report</button>`)
           .join("");
 
@@ -1530,12 +1636,18 @@
     // ----- Distribution -----
     function serve(id) {
       const b = B.find(x => x.id == id);
-      const goods = I.map(x => `
-        <tr>
+      // Per-person items are multiplied by the family size. Items without enough stock are skipped.
+      const goods = given().map(x => {
+        const amt = share(x, b.fam), short = rem(x) < amt;
+        return `
+        <tr style="${short ? "opacity:.6" : ""}">
           <td>${esc(x.item)}</td>
-          <td>${x.per} ${unit(x)}</td>
-          <td style="color:${rem(x) < x.per ? "var(--p1)" : "var(--mu)"}">${rem(x)} ${unit(x)} left</td>
-        </tr>`).join("");
+          <td>${short ? "<s>" : ""}${amt} ${unit(x)}${short ? "</s>" : ""}
+            ${x.basis === "person" ? `<span style="color:var(--mu);font-size:12px">(${x.per} × ${b.fam} people)</span>` : ""}</td>
+          <td style="color:${short ? "var(--p1)" : "var(--mu)"}">${short ? "Not enough · skipped" : rem(x) + " " + unit(x) + " left"}</td>
+        </tr>`;
+      }).join("");
+      const skipped = given().filter(x => rem(x) < share(x, b.fam));
 
       modal(`
         <h3>Distribute relief goods</h3>
@@ -1544,7 +1656,9 @@
           <span style="color:var(--mu)">${esc(b.brgy)} · ${b.idt.split(" ")[0]} ${mask(b.idn)} · family of ${b.fam}</span>
         </p>
 
-        <table>${goods}</table>
+        <table>${goods || `<tr><td style="color:var(--mu)">No items are set to be given out.</td></tr>`}</table>
+        ${skipped.length ? `<div class="note">Out of stock for this family: <b>${skipped.map(x => esc(x.item)).join(", ")}</b>.
+          They'll get everything else now. Record a donation or ask Logistics to sort stock to cover the rest.</div>` : ""}
 
         <div class="actions">
           <button class="btn a" onclick="confirmServe(${id})">Confirm distribution</button>
@@ -1553,15 +1667,21 @@
     }
 
     async function confirmServe(id) {
-      const low = I.find(x => rem(x) < x.per);
-      if (low) {
-        toast("Not enough " + low.item + " for one family");
-        return;
-      }
+      const b = B.find(x => x.id == id);
+      if (!given().some(x => rem(x) >= share(x, b.fam))) return toast("Nothing in stock to give out");
 
-      // The database takes the stock soonest-expiring first, marks the person served and saves
-      // the history in one step, so two people serving at once can't give out the same stock
-      if (!(await act(sb.rpc("serve_beneficiary", { ben_id: id })))) return;
+      // The database takes the stock soonest-expiring first, skips items that ran short,
+      // marks the person served and saves the history in one step, so two people
+      // serving at once can't give out the same stock
+      if (busy) return;
+      busy = true;
+      let res;
+      try { res = await sb.rpc("serve_beneficiary", { ben_id: id }); }
+      catch (e) { res = { error: { message: "Can't reach the database. Check your internet connection" } }; }
+      finally { busy = false; }
+      const { data: skipped, error } = res;
+      if (error) return toast(errMsg(error));
+      await load();
 
       // Slide the card out, then refresh the queue
       close_();
@@ -1569,7 +1689,7 @@
       if (card) card.classList.add("out");
       setTimeout(() => {
         go("Priority Queue");
-        toast("Recorded · inventory updated");
+        toast(skipped ? "Recorded · skipped (out of stock): " + skipped : "Recorded · inventory updated");
       }, 450);
     }
 
@@ -1580,34 +1700,205 @@
         <label>Item name</label>
         <input id="f1" placeholder="e.g. Milk">
         <label>Category (what it is for)</label>
-        <select id="f3">${CATS.map(c => `<option>${c}</option>`).join("")}</select>
+        <select id="f3" onchange="$('f4').value = CAT_MEASURE[this.value]; $('f4').onchange(); $('f6').value = this.value === 'Clothing' ? 'person' : 'family'">${CATS.map(c => `<option>${c}</option>`).join("")}</select>
         <label>Counted by</label>
         <select id="f4" onchange="$('fu').textContent = MEASURES[this.value].base">
           ${Object.entries(MEASURES).map(([k, m]) => `<option value="${k}">${m.label} · ${m.base}</option>`).join("")}
         </select>
-        <label>Quantity per family (<span id="fu">L</span>)</label>
-        <input id="f2" type="number" value="1" min="0" step="any">
-        <label><input type="checkbox" id="f5"> <span>Perishable · donations need an expiry date</span></label>
+        <div class="two">
+          <div>
+            <label>Given</label>
+            <select id="f6">
+              <option value="family">Per family (e.g. 1 hygiene kit)</option>
+              <option value="person">Per person (× family size, e.g. clothes)</option>
+            </select>
+          </div>
+          <div>
+            <label>Amount each (<span id="fu">kg</span>)</label>
+            <input id="f2" type="number" value="1" min="0" step="any">
+          </div>
+        </div>
+        <div class="cks one" style="margin-top:10px">
+          <label><input type="checkbox" id="f5"> <span>Perishable · donations need an expiry date</span></label>
+          <label><input type="checkbox" id="f7" checked> <span>Give out to families<br>
+            <span style="color:var(--mu)">Untick for stock that must be sorted or repacked first, like unsorted clothes in sacks</span></span></label>
+        </div>
 
         <div class="actions">
           <button class="btn a" onclick="saveItem()">Save</button>
           <button class="btn o" onclick="close_()">Cancel</button>
         </div>`);
+      $("f3").onchange();   // start with the counting that fits the first category (Food → kg)
     }
 
     async function saveItem() {
       const name = $("f1").value.trim() || "Item";
       if (I.some(x => x.item.toLowerCase() === name.toLowerCase())) return toast("That item already exists");
       const per = +$("f2").value;
-      if (!(per > 0)) return toast("Quantity per family must be more than 0");
+      if (!(per > 0)) return toast("Amount each must be more than 0");
 
       const ok = await act(sb.from("items").insert({
-        name, cat: $("f3").value, measure: $("f4").value, perish: $("f5").checked, per: num(per)
+        name, cat: $("f3").value, measure: $("f4").value, perish: $("f5").checked, per: num(per),
+        basis: $("f6").value, distribute: $("f7").checked
       }), "Item added");
       if (!ok) return;
 
       close_();
       go("Inventory");
+    }
+
+    // ----- Stock adjustments (Logistics & Admin) -----
+    // id = item to adjust; leave it out to pick the item in the form
+    function addAdj(id) {
+      if (!I.length) return toast("Add a relief item first");
+      const items = I.map(x => `<option value="${x.id}" ${x.id === id ? "selected" : ""}>${esc(x.item)} (${rem(x)} ${unit(x)} left)</option>`).join("");
+      const kinds = HAND_ADJ.map(k => `<option value="${k}">${MOVES[k]}</option>`).join("");
+
+      modal(`
+        <h3>Stock adjustment</h3>
+        <label>Item</label>
+        <select id="a1" onchange="adjForm()">${items}</select>
+        <label>What happened</label>
+        <select id="a2" onchange="adjForm()">${kinds}</select>
+        <label>Amount (<span id="au"></span>)</label>
+        <input id="a3" type="number" min="0" step="any" oninput="adjForm()">
+        <div id="aex">
+          <label>Expiry date of the extra stock</label>
+          <input id="a5" type="date" min="${today()}">
+        </div>
+        <label>Reason (required)</label>
+        <input id="a4" placeholder="e.g. 3 sacks soaked by flood water in Warehouse A">
+        <div class="note" id="anote"></div>
+
+        <div class="actions">
+          <button class="btn a" onclick="saveAdj()">Save adjustment</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+      adjForm();
+    }
+
+    // Shows the unit, the expiry field (only when adding perishable stock) and the result
+    function adjForm() {
+      const x = I.find(i => i.id === +$("a1").value);
+      const add = $("a2").value === "recount_more";
+      const q = num(+$("a3").value || 0);
+      $("au").textContent = unit(x);
+      $("aex").style.display = add && x.perish ? "" : "none";
+      $("anote").innerHTML = !q ? `Now ${rem(x)} ${unit(x)} usable.`
+        : !add && q > rem(x) ? `<span style="color:var(--p1)">Only ${rem(x)} ${unit(x)} usable. You can't remove more than that.</span>`
+        : `${rem(x)} ${unit(x)} → <b>${num(rem(x) + (add ? q : -q))} ${unit(x)}</b>`
+          + (add ? "" : " · taken from the soonest-expiring batch first");
+    }
+
+    async function saveAdj() {
+      const x = I.find(i => i.id === +$("a1").value);
+      const kind = $("a2").value, q = num(+$("a3").value), reason = $("a4").value.trim();
+      const exp = kind === "recount_more" && x.perish ? $("a5").value : "";
+
+      if (!(q > 0))                         return toast("Enter an amount above 0");
+      if (kind !== "recount_more" && q > rem(x)) return toast(`Only ${rem(x)} ${unit(x)} usable`);
+      if (!reason)                          return toast("Give a reason for the adjustment");
+      if (kind === "recount_more" && x.perish && !exp) return toast("Perishable item · enter the expiry date");
+
+      const ok = await act(sb.rpc("adjust_stock", { p_item: x.id, p_kind: kind, p_qty: q, p_reason: reason, p_exp: exp || null }),
+        `${MOVES[kind]} · ${kind === "recount_more" ? "+" : "−"}${q} ${unit(x)} ${x.item}`);
+      if (!ok) return;
+
+      close_();
+      go(cur);
+    }
+
+    async function writeOff() {
+      const list = I.filter(x => spoiled(x) > 0).map(x => `${x.item} ${spoiled(x)} ${unit(x)}`).join(", ");
+      if (!confirm(`Remove all expired stock from inventory?\n\n${list}\n\nOnly do this once it has been disposed of.`)) return;
+
+      if (await act(sb.rpc("write_off_expired"), "Expired stock written off · logged in Stock Movements")) go(cur);
+    }
+
+    // Turns stock of one item into stock of others, e.g. 20 kg unsorted clothes → men's / women's / children's pieces,
+    // or 50 kg bulk rice → 10 family rice packs. Each output is in its own item's unit.
+    let sortSrc = null;   // item being sorted, so the "sorted into" lists leave it out
+
+    function addSort(id) {
+      const src = I.find(x => x.id === id);
+      sortSrc = id;
+      if (!rem(src)) return toast(`No usable ${src.item} to sort`);
+      const others = I.filter(x => x.id !== id);
+      if (!others.length) return toast("Add the items it will be sorted into first (e.g. Men's clothes)");
+
+      // Suggest items of the same category first (unsorted clothes → the clothing items)
+      const same = others.filter(x => x.cat === src.cat);
+      const outs = (same.length ? same : others.slice(0, 1)).map(x => x.id);
+
+      modal(`
+        <h3>Sort / repack ${esc(src.item)}</h3>
+        <label>Take from ${esc(src.item)} (${unit(src)}, ${rem(src)} usable)</label>
+        <input id="s_q" type="number" min="0" step="any" value="${rem(src)}" oninput="sortCalc()">
+
+        <label>Sorted into (leave 0 for any you didn't get)</label>
+        <div id="s_rows">${outs.map(o => sortRow(o)).join("")}</div>
+        <button class="btn o s" style="margin-top:6px" onclick="$('s_rows').insertAdjacentHTML('beforeend', sortRow())">+ Another item</button>
+
+        <label>Note (required)</label>
+        <input id="s_n" placeholder="e.g. Sorted by volunteers at Brgy. Sabang hall; 3 kg too damaged to use">
+        <div class="note" id="s_sum"></div>
+
+        <div class="actions">
+          <button class="btn a" onclick="saveSort(${id})">Save sorting</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+      sortCalc();
+    }
+
+    // One "sorted into" line: item + amount in that item's unit
+    function sortRow(sel) {
+      const opts = I.filter(x => x.id !== sortSrc)
+        .map(x => `<option value="${x.id}" ${x.id === sel ? "selected" : ""}>${esc(x.item)} (${unit(x)})</option>`).join("");
+      return `<div class="two s_row" style="margin-top:6px">
+        <select class="s_i" onchange="sortCalc()">${opts}</select>
+        <input class="s_v" type="number" min="0" step="any" value="0" oninput="sortCalc()">
+      </div>`;
+    }
+
+    function sortRows() {
+      return [...document.querySelectorAll(".s_row")]
+        .map(r => ({ item_id: +r.querySelector(".s_i").value, qty: num(+r.querySelector(".s_v").value || 0) }))
+        .filter(o => o.qty > 0);
+    }
+
+    function sortCalc() {
+      const outs = sortRows();
+      $("s_sum").innerHTML = outs.length
+        ? "Adds: " + outs.map(o => { const x = I.find(i => i.id === o.item_id); return `<b>${o.qty} ${unit(x)}</b> ${esc(x.item)}`; }).join(", ")
+        : "Enter how much of each item came out of the sorting.";
+    }
+
+    async function saveSort(id) {
+      const src = I.find(x => x.id === id);
+      const q = num(+$("s_q").value), outs = sortRows(), note = $("s_n").value.trim();
+
+      if (!(q > 0))        return toast("Enter how much was taken");
+      if (q > rem(src))    return toast(`Only ${rem(src)} ${unit(src)} usable`);
+      if (!outs.length)    return toast("Enter at least one item it was sorted into");
+      if (new Set(outs.map(o => o.item_id)).size < outs.length) return toast("Each item can only be listed once");
+      if (!note)           return toast("Add a note about the sorting");
+
+      const ok = await act(sb.rpc("repack_stock", { p_from: id, p_qty: q, p_outputs: outs, p_note: note }),
+        `Sorted ${q} ${unit(src)} ${src.item} into ${outs.length} item(s)`);
+      if (!ok) return;
+
+      close_();
+      go(cur);
+    }
+
+    // Switches whether an item is handed to families
+    async function setGive(id, on) {
+      const x = I.find(i => i.id === id);
+      if (on && x.basis === "person" && x.cat === "Clothing" &&
+          !confirm(`${x.item} is given per person, to every member of every family, whatever their age or sex.\n\nTurn it on anyway?`)) return;
+
+      if (await act(sb.from("items").update({ distribute: on }).eq("id", id),
+        on ? `${x.item} is now given out` : `${x.item} is no longer given out`)) go(cur);
     }
 
     // ----- Sponsors & donations -----
@@ -1700,7 +1991,9 @@
       const got = pack ? `${num(n)} × ${num(size)} ${u} packs` : `${num(n)} ${u} (bulk)`;
 
       $("fcv").innerHTML = total > 0
-        ? `${esc(got)} = <b>${total} ${unit(x)}</b> added to ${esc(x.item)} · enough for ${Math.floor(total / x.per)} families at ${x.per} ${unit(x)} each`
+        ? `${esc(got)} = <b>${total} ${unit(x)}</b> added to ${esc(x.item)} · ` + (x.give
+          ? `enough for ${Math.floor(total / x.per)} ${x.basis === "person" ? "people" : "families"} at ${x.per} ${unit(x)} per ${whom(x)}`
+          : "kept in storage until it is sorted")
         : "Enter an amount above 0";
       return { total, got };
     }
@@ -1732,14 +2025,16 @@
         Inventory:    () => I.map(x => {
           const u = unit(x);
           return `[${x.cat}] ${x.item}: donated ${x.don} ${u}, distributed ${x.dist} ${u}, remaining ${rem(x)} ${u}` +
-            ` (${families(x)} families)` + (nextExp(x) ? `, next expiry ${nextExp(x)}` : "") +
+            ` (${x.give ? `${x.per} ${u} per ${whom(x)}, ` : ""}${reach(x)})` + (nextExp(x) ? `, next expiry ${nextExp(x)}` : "") +
             (spoiled(x) ? `, ${spoiled(x)} ${u} expired` : "");
         }),
         Donation:     () => DON.map(d => {
           const x = I.find(i => i.item === d.item);
           return `${d.date} ${d.sp}: ${d.got} ${d.item} → ${d.q} ${x ? unit(x) : ""}` + (d.exp ? `, expires ${d.exp}` : "");
         }),
-        Distribution: () => D.map(d => `${d.date} ${d.ben}: ${d.items}`)
+        Distribution: () => D.map(d => `${d.date} ${d.ben}: ${d.items}`),
+        "Stock movement": () => M.map(m =>
+          `${m.date} ${m.item}: ${m.q > 0 ? "+" : ""}${m.q} ${m.unit} · ${MOVES[m.kind] || m.kind} · ${m.reason} (${m.by})`)
       };
       const lines = reports[type]();
 
