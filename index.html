@@ -492,22 +492,47 @@
       { id: 2, name: "ABC Foods Inc.",      type: "Company",      contact: "0920-555-6666" }
     ];
 
-    // Inventory  (don = donated, dist = distributed, per = amount given per family)
+    // Relief categories: what the goods are for (DSWD / Sphere-style groupings)
+    const CATS = ["Food", "Water", "Hygiene & Sanitation", "Health / Medical", "Shelter", "Clothing", "Household"];
+
+    // How an item is counted. Stock is always stored in the base unit; each unit says how many base units it is.
+    const MEASURES = {
+      volume: { label: "Liquid (by volume)",     base: "L",   units: { L: 1, mL: 0.001, gal: 3.785 } },
+      mass:   { label: "Solid / bulk (by weight)", base: "kg",  units: { kg: 1, g: 0.001, lb: 0.4536 } },
+      count:  { label: "Pieces / kits (by count)", base: "pcs", units: { pcs: 1 } }
+    };
+
+    // Sample expiry dates relative to today
+    const inDays = n => {                                                 // local date n days from now, yyyy-mm-dd
+      const d = new Date(Date.now() + n * 864e5), p = v => String(v).padStart(2, "0");
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    };
+
+    // Inventory  (don = donated, dist = distributed, per = amount given per family, all in the base unit)
+    // lots = stock batches still on hand. Perishable lots have an expiry date and go out soonest-expiring first (FEFO).
     let I = [
-      { item: "Rice (kg)",          don: 500, dist: 5, per: 5 },
-      { item: "Canned goods (pcs)", don: 300, dist: 4, per: 4 },
-      { item: "Bottled water (L)",  don: 400, dist: 6, per: 6 },
-      { item: "Hygiene kits",       don: 100, dist: 1, per: 1 }
+      { item: "Rice",          cat: "Food",                 measure: "mass",   perish: false, don: 500,  dist: 5, per: 5,
+        lots: [{ q: 495, exp: "" }] },
+      { item: "Canned goods",  cat: "Food",                 measure: "count",  perish: true,  don: 300,  dist: 4, per: 4,
+        lots: [{ q: 296, exp: inDays(400) }] },
+      { item: "Milk",          cat: "Food",                 measure: "volume", perish: true,  don: 1050, dist: 0, per: 1,
+        lots: [{ q: 1000, exp: inDays(5) }, { q: 50, exp: inDays(90) }] },
+      { item: "Bottled water", cat: "Water",                measure: "volume", perish: false, don: 400,  dist: 6, per: 6,
+        lots: [{ q: 394, exp: "" }] },
+      { item: "Hygiene kits",  cat: "Hygiene & Sanitation", measure: "count",  perish: false, don: 100,  dist: 1, per: 1,
+        lots: [{ q: 99, exp: "" }] }
     ];
 
     // Distribution history
     let D = [
-      { id: 1, date: "2026-10-05", ben: "Rosa Lim", items: "Rice 5, Canned 4, Water 6, Kit 1", by: "LGU Personnel" }
+      { id: 1, date: "2026-10-05", ben: "Rosa Lim", items: "Rice 5 kg, Canned goods 4 pcs, Bottled water 6 L, Hygiene kits 1 pcs", by: "LGU Personnel" }
     ];
 
-    // Donation records
+    // Donation records  (got = what was handed over, q = amount added to stock in the base unit)
     let DON = [
-      { date: "2026-10-04", sp: "Rotary Club of Lipa", item: "Rice (kg)", q: 300 }
+      { date: "2026-10-04", sp: "Rotary Club of Lipa", item: "Rice", got: "300 kg (bulk)",        q: 300,  exp: "" },
+      { date: "2026-10-06", sp: "ABC Foods Inc.",      item: "Milk", got: "100 × 500 mL packs",   q: 50,   exp: inDays(90) },
+      { date: "2026-10-07", sp: "Rotary Club of Lipa", item: "Milk", got: "1000 L (bulk)",        q: 1000, exp: inDays(5) }
     ];
 
     let role = "", user = "", cur = "Dashboard", toured = false;
@@ -526,7 +551,27 @@
        ========================================================= */
 
     const $ = id => document.getElementById(id);
-    const rem = x => x.don - x.dist;                                      // stock remaining
+    const unit = x => MEASURES[x.measure].base;                           // base unit of an item
+    const num = n => +(+n).toFixed(3);                                    // trims float noise (0.1 + 0.2)
+    const expired = lot => lot.exp && lot.exp < today();                  // yyyy-mm-dd compares as text
+    const usable = x => x.lots.filter(l => !expired(l));
+    const rem = x => num(usable(x).reduce((s, l) => s + l.q, 0));         // stock that can still be given out
+    const spoiled = x => num(x.lots.filter(expired).reduce((s, l) => s + l.q, 0));
+    const nextExp = x => usable(x).map(l => l.exp).filter(Boolean).sort()[0] || "";
+    const soon = x => nextExp(x) && nextExp(x) <= inDays(7);              // expires within a week
+    const families = x => Math.floor(rem(x) / x.per);                     // families this item can still cover
+
+    // Takes one family's share from the soonest-expiring lots first (FEFO). No-expiry lots go last.
+    function take(x, amount) {
+      const order = usable(x).sort((a, b) => (a.exp || "9999") < (b.exp || "9999") ? -1 : 1);
+      for (const lot of order) {
+        const t = Math.min(lot.q, amount);
+        lot.q = num(lot.q - t);
+        amount = num(amount - t);
+        if (!amount) break;
+      }
+      x.lots = x.lots.filter(l => l.q > 0);
+    }
     const staff = () => role === "Admin" || role === "LGU Personnel";     // can verify / delete
     const pad2 = n => String(n).padStart(2, "0");
     const today = () => {                                                 // local date, yyyy-mm-dd
@@ -913,7 +958,7 @@
       ["Welcome to ReliefSys",
        "This 1-minute tour shows how to run a relief distribution. Reopen it any time with <b>How to use</b> at the top right."],
       ["1. Read the dashboard",
-       "The dashboard shows registered beneficiaries, the queue size, and how much stock is donated, distributed and remaining. It updates after every action."],
+       "The dashboard shows registered beneficiaries, the queue size, and how many families the stock can still serve, and which items expire soon. Stock is grouped by category. It updates after every action."],
       ["2. Register beneficiaries",
        "Open <b>Beneficiaries</b> and press <b>Register</b>. Enter the person's details and birthdate, tick <b>every</b> category that applies, then add household income and ID. Senior citizen is set automatically from the birthdate. A different LGU or Admin must check the ID and proof for each category before the person joins the queue. No ID? Choose the barangay certificate so poor families are not left out.", "b"],
       ["3. Understand the priority queue",
@@ -921,7 +966,7 @@
       ["4. Serve the next person",
        "In <b>Priority Queue</b>, press <b>Serve Next</b> on the first card. Check the goods list and confirm. Inventory goes down and the transaction is saved.", "i"],
       ["5. Record donations",
-       "In <b>Sponsors & Donations</b>, add a sponsor, then record the donation. Stock rises right away.", "i"],
+       "In <b>Sponsors & Donations</b>, add a sponsor, then record the donation. Choose bulk or packs and the unit (for example 100 bottles × 500 mL). The system converts it to the item's base unit, so 1000 L of bulk milk and 50 L of bottled milk go into the same stock. Perishables need an expiry date and are given out soonest-expiring first.", "i"],
       ["6. Check reports and accounts",
        "Use <b>Reports</b> to print or save PDF summaries. Admins approve new accounts in <b>Users</b> after checking their ID."]
     ];
@@ -960,27 +1005,29 @@
 
     const V = {
       Dashboard() {
-        const donated = I.reduce((sum, x) => sum + x.don, 0);
-        const given = I.reduce((sum, x) => sum + x.dist, 0);
         const q = queue();
 
+        // Items use different units (kg, L, pcs), so the dashboard counts families covered instead of adding amounts
         const stats = [
           [B.length, "Registered beneficiaries"],
           [q.length, "Waiting in queue"],
           [pend().length, "Need ID verification"],
           [D.length, "Distributions recorded"],
-          [donated, "Total donated"],
-          [given, "Distributed"],
-          [donated - given, "Remaining"]
+          [I.length ? Math.min(...I.map(families)) : 0, "Families stock can still serve"],
+          [I.filter(soon).length, "Items expiring within 7 days"],
+          [I.filter(x => spoiled(x) > 0).length, "Items with expired stock"]
         ];
 
         const statCards = stats
           .map(x => `<div class="card stat"><b data-n="${x[0]}">0</b><span>${x[1]}</span></div>`)
           .join("");
 
-        const stockBars = I.map(x => `
-          <p style="margin:10px 0 3px">${esc(x.item)} <span style="color:var(--mu)">· ${rem(x)} left of ${x.don}</span></p>
-          <div class="bar"><i style="width:${x.don ? rem(x) / x.don * 100 : 0}%"></i></div>`).join("");
+        const stockBars = CATS.filter(c => I.some(x => x.cat === c)).map(c => `
+          <p style="margin:14px 0 0;font-size:12px;color:var(--mu)"><b>${c}</b></p>` +
+          I.filter(x => x.cat === c).map(x => `
+          <p style="margin:6px 0 3px">${esc(x.item)} <span style="color:var(--mu)">· ${rem(x)} ${unit(x)} left of ${x.don} ${unit(x)}
+            · ${families(x)} families</span>${soon(x) ? ` <span style="color:var(--p2)">· expires ${nextExp(x)}</span>` : ""}</p>
+          <div class="bar"><i style="width:${x.don ? rem(x) / x.don * 100 : 0}%"></i></div>`).join("")).join("");
 
         const next = q[0]
           ? esc(q[0].name) + " " + tag(q[0]) + ` <span style="color:var(--mu)">· ${INC[q[0].inc]}</span>`
@@ -1072,28 +1119,39 @@
       },
 
       Inventory() {
-        const rows = I.map(x => {
+        const row = x => {
+          const u = unit(x);
           const pct = x.don ? rem(x) / x.don * 100 : 0;
-          const low = rem(x) / x.don < .2 ? "background:var(--p1)" : "";
+          const low = !x.don || rem(x) / x.don < .2 ? "background:var(--p1)" : "";
+          const exp = !x.perish ? `<span style="color:var(--mu)">—</span>`
+            : (nextExp(x) ? `<span style="${soon(x) ? "color:var(--p2)" : ""}">${nextExp(x)}</span>` : "")
+              + (spoiled(x) ? `<br><span style="color:var(--p1)">${spoiled(x)} ${u} expired</span>` : "");
           return `
             <tr>
-              <td>${esc(x.item)}</td>
-              <td>${x.don}</td>
-              <td>${x.dist}</td>
-              <td><b>${rem(x)}</b></td>
+              <td>${esc(x.item)}<br><span style="color:var(--mu);font-size:12px">${MEASURES[x.measure].label}</span></td>
+              <td>${x.don} ${u}</td>
+              <td>${x.dist} ${u}</td>
+              <td><b>${rem(x)} ${u}</b></td>
+              <td>${x.per} ${u}<br><span style="color:var(--mu);font-size:12px">${families(x)} families</span></td>
+              <td>${exp}</td>
               <td style="min-width:110px"><div class="bar"><i style="width:${pct}%;${low}"></i></div></td>
             </tr>`;
-        }).join("");
+        };
+
+        // Grouped by category
+        const rows = CATS.filter(c => I.some(x => x.cat === c)).map(c => `
+          <tr><td colspan="7" style="background:var(--bg);font-weight:600">${c}</td></tr>
+          ${I.filter(x => x.cat === c).map(row).join("")}`).join("");
 
         return `
           <div class="top">
-            <span style="color:var(--mu)">Donated · Distributed · Remaining</span>
+            <span style="color:var(--mu)">All amounts are in each item's base unit. Perishables go out soonest-expiring first.</span>
             ${role !== "Volunteer" ? '<button class="btn a" onclick="addItem()">+ Add relief item</button>' : ""}
           </div>
 
           <div class="card tw">
             <table>
-              <tr><th>Item</th><th>Donated</th><th>Distributed</th><th>Remaining</th><th>Level</th></tr>
+              <tr><th>Item</th><th>Donated</th><th>Distributed</th><th>Remaining</th><th>Per family</th><th>Next expiry</th><th>Level</th></tr>
               ${rows}
             </table>
           </div>`;
@@ -1104,7 +1162,11 @@
           .map(s => `<tr><td>${esc(s.name)}</td><td>${s.type}</td><td>${esc(s.contact)}</td></tr>`)
           .join("");
         const donationRows = DON
-          .map(d => `<tr><td>${d.date}</td><td>${esc(d.sp)}</td><td>${esc(d.item)}</td><td>${d.q}</td></tr>`)
+          .map(d => {
+            const x = I.find(i => i.item === d.item);
+            return `<tr><td>${d.date}</td><td>${esc(d.sp)}</td><td>${esc(d.item)}</td><td>${esc(d.got)}</td>
+              <td><b>${d.q} ${x ? unit(x) : ""}</b></td><td>${d.exp || "—"}</td></tr>`;
+          })
           .join("");
 
         return `
@@ -1127,7 +1189,7 @@
           <div class="card tw">
             <b>Donation records</b>
             <table>
-              <tr><th>Date</th><th>Sponsor</th><th>Item</th><th>Qty</th></tr>
+              <tr><th>Date</th><th>Sponsor</th><th>Item</th><th>Received as</th><th>Added to stock</th><th>Expiry</th></tr>
               ${donationRows}
             </table>
           </div>`;
@@ -1386,8 +1448,8 @@
       const goods = I.map(x => `
         <tr>
           <td>${esc(x.item)}</td>
-          <td>${x.per}</td>
-          <td style="color:${rem(x) < x.per ? "var(--p1)" : "var(--mu)"}">${rem(x)} left</td>
+          <td>${x.per} ${unit(x)}</td>
+          <td style="color:${rem(x) < x.per ? "var(--p1)" : "var(--mu)"}">${rem(x)} ${unit(x)} left</td>
         </tr>`).join("");
 
       modal(`
@@ -1413,13 +1475,16 @@
       }
 
       const b = B.find(x => x.id == id);
-      I.forEach(x => x.dist += x.per);
+      I.forEach(x => {
+        take(x, x.per);
+        x.dist = num(x.dist + x.per);
+      });
       b.done = true;
       D.unshift({
         id: Date.now(),
         date: today(),
         ben: b.name,
-        items: I.map(x => x.item.split(" ")[0] + " " + x.per).join(", "),
+        items: I.map(x => `${x.item} ${x.per} ${unit(x)}`).join(", "),
         by: role
       });
 
@@ -1438,9 +1503,16 @@
       modal(`
         <h3>Add relief item</h3>
         <label>Item name</label>
-        <input id="f1">
-        <label>Quantity per family</label>
-        <input id="f2" type="number" value="1">
+        <input id="f1" placeholder="e.g. Milk">
+        <label>Category (what it is for)</label>
+        <select id="f3">${CATS.map(c => `<option>${c}</option>`).join("")}</select>
+        <label>Counted by</label>
+        <select id="f4" onchange="$('fu').textContent = MEASURES[this.value].base">
+          ${Object.entries(MEASURES).map(([k, m]) => `<option value="${k}">${m.label} · ${m.base}</option>`).join("")}
+        </select>
+        <label>Quantity per family (<span id="fu">L</span>)</label>
+        <input id="f2" type="number" value="1" min="0" step="any">
+        <label><input type="checkbox" id="f5"> <span>Perishable · donations need an expiry date</span></label>
 
         <div class="actions">
           <button class="btn a" onclick="saveItem()">Save</button>
@@ -1449,7 +1521,13 @@
     }
 
     function saveItem() {
-      I.push({ item: $("f1").value || "Item", don: 0, dist: 0, per: +$("f2").value || 1 });
+      const name = $("f1").value.trim() || "Item";
+      if (I.some(x => x.item.toLowerCase() === name.toLowerCase())) return toast("That item already exists");
+      const per = +$("f2").value;
+      if (!(per > 0)) return toast("Quantity per family must be more than 0");
+
+      I.push({ item: name, cat: $("f3").value, measure: $("f4").value, perish: $("f5").checked,
+               don: 0, dist: 0, per: num(per), lots: [] });
       close_();
       go("Inventory");
       toast("Item added");
@@ -1484,34 +1562,85 @@
     }
 
     function addDon() {
+      if (!S.length) return toast("Add a sponsor first");
+      if (!I.length) return toast("Add a relief item first");
       const sponsors = S.map(s => `<option>${esc(s.name)}</option>`).join("");
-      const items = I.map(x => `<option>${esc(x.item)}</option>`).join("");
+      const items = I.map((x, i) => `<option value="${i}">${esc(x.item)} (${unit(x)})</option>`).join("");
 
       modal(`
         <h3>Record donation</h3>
         <label>Sponsor</label>
         <select id="f1">${sponsors}</select>
         <label>Item</label>
-        <select id="f2">${items}</select>
-        <label>Quantity</label>
-        <input id="f3" type="number" value="50">
+        <select id="f2" onchange="donForm()">${items}</select>
+        <label>Received as</label>
+        <select id="f6" onchange="donForm()">
+          <option value="bulk">Bulk / loose (e.g. 1000 L in a tank, 300 kg in sacks)</option>
+          <option value="pack">Packs, bottles or boxes (e.g. 100 bottles × 500 mL)</option>
+        </select>
+        <label id="fql">Amount</label>
+        <input id="f3" type="number" value="50" min="0" step="any" oninput="donCalc()">
+        <div id="fps">
+          <label>Size of each pack</label>
+          <input id="f7" type="number" value="1" min="0" step="any" oninput="donCalc()">
+        </div>
+        <label>Unit</label>
+        <select id="f8" onchange="donCalc()"></select>
+        <div id="fex">
+          <label>Expiry date</label>
+          <input id="f9" type="date">
+        </div>
+        <div class="note" id="fcv"></div>
 
         <div class="actions">
           <button class="btn a" onclick="saveDon()">Save donation</button>
           <button class="btn o" onclick="close_()">Cancel</button>
         </div>`);
+      donForm();
+    }
+
+    // Shows only the units and fields that fit the chosen item
+    function donForm() {
+      const x = I[$("f2").value];
+      const pack = $("f6").value === "pack";
+      $("f8").innerHTML = Object.keys(MEASURES[x.measure].units).map(u => `<option>${u}</option>`).join("");
+      $("fql").textContent = pack ? "Number of packs" : "Amount";
+      $("fps").style.display = pack ? "" : "none";
+      $("fex").style.display = x.perish ? "" : "none";
+      $("f9").min = today();
+      donCalc();
+    }
+
+    // Converts what was received into the item's base unit
+    function donCalc() {
+      const x = I[$("f2").value];
+      const pack = $("f6").value === "pack";
+      const n = +$("f3").value, size = pack ? +$("f7").value : 1, u = $("f8").value;
+      const total = num(n * size * MEASURES[x.measure].units[u]);
+      const got = pack ? `${num(n)} × ${num(size)} ${u} packs` : `${num(n)} ${u} (bulk)`;
+
+      $("fcv").innerHTML = total > 0
+        ? `${esc(got)} = <b>${total} ${unit(x)}</b> added to ${esc(x.item)} · enough for ${Math.floor(total / x.per)} families at ${x.per} ${unit(x)} each`
+        : "Enter an amount above 0";
+      return { total, got };
     }
 
     function saveDon() {
-      const qty = +$("f3").value || 0;
-      const item = $("f2").value;
+      const x = I[$("f2").value];
+      const { total, got } = donCalc();
+      const exp = x.perish ? $("f9").value : "";
 
-      I.find(x => x.item === item).don += qty;
-      DON.unshift({ date: today(), sp: $("f1").value, item, q: qty });
+      if (!(total > 0)) return toast("Enter an amount above 0");
+      if (x.perish && !exp) return toast("Perishable item · enter the expiry date");
+      if (exp && exp < today()) return toast("That stock is already expired · do not accept it");
+
+      x.don = num(x.don + total);
+      x.lots.push({ q: total, exp });
+      DON.unshift({ date: today(), sp: $("f1").value, item: x.item, got, q: total, exp });
 
       close_();
       go("Sponsors & Donations");
-      toast("Donation recorded · inventory increased");
+      toast(`Donation recorded · +${total} ${unit(x)} ${x.item}`);
     }
 
     // ----- Reports -----
@@ -1519,8 +1648,16 @@
       const reports = {
         Beneficiary:  () => B.map(b => `${b.name} — ${cats(b).join(" + ")}, ${INC[b.inc]}, ${b.ver ? "ID verified" : "ID pending"}`),
         Sponsor:      () => S.map(s => `${s.name} — ${s.type}`),
-        Inventory:    () => I.map(x => `${x.item}: donated ${x.don}, distributed ${x.dist}, remaining ${rem(x)}`),
-        Donation:     () => DON.map(d => `${d.date} ${d.sp}: ${d.q} × ${d.item}`),
+        Inventory:    () => I.map(x => {
+          const u = unit(x);
+          return `[${x.cat}] ${x.item}: donated ${x.don} ${u}, distributed ${x.dist} ${u}, remaining ${rem(x)} ${u}` +
+            ` (${families(x)} families)` + (nextExp(x) ? `, next expiry ${nextExp(x)}` : "") +
+            (spoiled(x) ? `, ${spoiled(x)} ${u} expired` : "");
+        }),
+        Donation:     () => DON.map(d => {
+          const x = I.find(i => i.item === d.item);
+          return `${d.date} ${d.sp}: ${d.got} ${d.item} → ${d.q} ${x ? unit(x) : ""}` + (d.exp ? `, expires ${d.exp}` : "");
+        }),
         Distribution: () => D.map(d => `${d.date} ${d.ben}: ${d.items}`)
       };
       const lines = reports[type]();
