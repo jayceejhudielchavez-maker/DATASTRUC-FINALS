@@ -5,38 +5,76 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>ReliefSys – Smart Disaster Relief Distribution System</title>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&display=swap" rel="stylesheet">
+  <script>
+    // Apply the saved light/dark choice before the page draws, so it never flashes the wrong colors
+    try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
 
   <style>
     /* ===================== Theme colors ===================== */
     :root {
-      --bg: #eef2f6;      /* page background */
+      --bg: #eff3f0;      /* page background */
       --card: #fff;       /* card background */
-      --tx: #12263a;      /* text */
-      --mu: #5d7080;      /* muted text */
-      --bd: #d8e0e8;      /* borders */
-      --pr: #12263a;      /* primary */
+      --tx: #0e1510;      /* text */
+      --mu: #5b6b60;      /* muted text */
+      --bd: #d6e0d9;      /* borders */
+      --pr: #0b0f0c;      /* primary (black) */
       --prt: #fff;        /* text on primary */
-      --ac: #ff6a1a;      /* accent (orange) */
+      --ac: #86efac;      /* accent (light mint green) */
+      --act: #052e16;     /* text on accent */
+      --glow: 0 0 0 1px #86efac66, 0 0 22px #86efacaa;   /* soft bloom around accent things */
+      --sb: #fff;         /* sidebar menu background */
+      --sbt: #0e1510;     /* sidebar text */
+      --sbh: #0e15100f;   /* sidebar link hover */
+      --s-ok: #33db20;    /* stock: plenty (50% or more left) */
+      --s-low: #facc15;   /* stock: running low (20–50%) */
+      --s-crit: #ff0026;  /* stock: critical (under 20%) */
       --p1: #c0392b;      /* priority: high */
-      --p2: #c77700;      /* priority: medium */
-      --p3: #2f7fbf;      /* priority: regular */
-      --ok: #17805d;      /* success */
+      --p2: #d97706;      /* priority: medium */
+      --p3: #64748b;      /* priority: regular */
+      --ok: #15803d;      /* success */
       --hd: 'Bricolage Grotesque', system-ui, sans-serif;
       box-sizing: border-box;
     }
 
+    /* Dark colors: used when the user picks Dark, or picks Auto and their device is in dark mode */
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme=light]) {
-        --bg: #0d1620;
-        --card: #15222f;
-        --tx: #e8eef3;
-        --mu: #8fa2b2;
-        --bd: #263646;
-        --pr: #ff6a1a;
-        --prt: #1a0d04;
-        --ok: #3ccf9b;
+        --bg: #070a08;
+        --card: #111813;
+        --tx: #e6efe8;
+        --mu: #8da394;
+        --bd: #223028;
+        --pr: #000;
+        --prt: #e6efe8;
+        --ok: #4ade80;
+        --sb: #000;
+        --sbt: #e6efe8;
+        --sbh: #ffffff1f;
+        color-scheme: dark;
       }
     }
+    :root[data-theme=dark] {
+      --bg: #070a08;
+      --card: #111813;
+      --tx: #e6efe8;
+      --mu: #8da394;
+      --bd: #223028;
+      --pr: #000;
+      --prt: #e6efe8;
+      --ok: #4ade80;
+      --sb: #000;
+      --sbt: #e6efe8;
+      --sbh: #ffffff1f;
+      color-scheme: dark;
+    }
+    :root[data-theme=light] { color-scheme: light; }
+
+    body, .card, .box, input, select { transition: background-color .3s, color .3s, border-color .3s; }
+
+    /* Light / Dark / Auto switch (top bar, and the corner of the login screen) */
+    .theme-btn { min-width: 84px; }
+    #login .theme-btn { position: fixed; top: 14px; right: 14px; z-index: 5; background: var(--card); }
 
     /* ===================== Base ===================== */
     * { box-sizing: border-box; }
@@ -67,7 +105,7 @@
     .btn:active { transform: scale(.97); }
     .btn.o { background: none; color: var(--tx); border: 1px solid var(--bd); box-shadow: none; }  /* outline */
     .btn.s { padding: 5px 10px; font-size: 12px; }                                                /* small */
-    .btn.a { background: var(--ac); color: #1a0d04; }                                             /* accent */
+    .btn.a { background: var(--ac); color: var(--act); box-shadow: var(--glow); }                                           /* accent */
 
     input, select {
       background: var(--card);
@@ -76,6 +114,28 @@
       padding: 9px;
       width: 100%;
     }
+    input { cursor: text; caret-color: var(--tx); }
+    input[type=checkbox], input[type=file] { cursor: pointer; }
+
+    /* Password field with our own Show/Hide button (the browser's built-in eye is unreliable, so it's hidden) */
+    .pw { position: relative; }
+    .pw input { padding-right: 62px; }
+    .pw .eye {
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: 0;
+      color: var(--mu);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .pw .eye:hover { color: var(--tx); background: var(--bg); }
+    input::-ms-reveal, input::-ms-clear { display: none; }
 
     label {
       display: block;
@@ -107,7 +167,7 @@
     #login { min-height: 100vh; display: grid; grid-template-columns: 1.1fr 1fr; }
 
     .hero {
-      background: #12263a;
+      background: radial-gradient(circle at 85% 110%, #14532d 0, #0b0f0c 60%);
       color: #fff;
       padding: 48px;
       display: flex;
@@ -117,7 +177,7 @@
       overflow: hidden;
     }
     .hero h1 { font-size: clamp(30px, 4.2vw, 52px); line-height: 1.05; font-weight: 800; max-width: 11em; }
-    .hero p  { max-width: 30em; color: #b9c8d6; }
+    .hero p  { max-width: 30em; color: #a9bcae; }
 
     .ring {
       position: absolute;
@@ -128,6 +188,7 @@
       border-radius: 50%;
       border: 2px solid var(--ac);
       opacity: .5;
+      box-shadow: 0 0 30px #86efac88, inset 0 0 30px #86efac55;
       animation: pulse 3.2s ease-out infinite;
     }
     .ring.r2 { animation-delay: 1.6s; }
@@ -174,17 +235,43 @@
     /* ===================== App layout ===================== */
     #app { display: none; min-height: 100vh; }
 
+    /* The menu slides in from the left when ☰ is pressed, so pages get the full width */
     aside {
-      width: 220px;
-      background: var(--pr);
-      color: var(--prt);
+      width: 250px;
+      max-width: 85vw;
+      background: var(--sb);
+      color: var(--sbt);
+      border-right: 1px solid var(--bd);
       padding: 16px;
       position: fixed;
       top: 0;
       bottom: 0;
+      left: 0;
       overflow: auto;
+      z-index: 8;
+      transform: translateX(-100%);
+      transition: transform .25s ease, background-color .3s, color .3s;
     }
-    aside h2 { font-size: 19px; margin-bottom: 16px; }
+    aside .theme-btn { width: 100%; margin-top: 14px; color: var(--sbt); }
+    aside.open { transform: none; box-shadow: 8px 0 30px #0005; }
+    aside .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    aside h2 { font-size: 19px; }
+    aside .x { background: none; border: 0; color: inherit; font-size: 22px; cursor: pointer; padding: 4px 8px; }
+
+    #scrim { position: fixed; inset: 0; background: #0006; z-index: 7; display: none; }
+    #scrim.open { display: block; }
+
+    .menu-btn {
+      background: var(--card);
+      border: 1px solid var(--bd);
+      border-radius: 8px;
+      width: 40px;
+      height: 40px;
+      font-size: 20px;
+      cursor: pointer;
+      flex: none;
+    }
+    .top .left { display: flex; align-items: center; gap: 10px; }
     aside a {
       display: block;
       padding: 9px 11px;
@@ -194,10 +281,10 @@
       opacity: .8;
       transition: all .2s;
     }
-    aside a:hover { opacity: 1; background: #ffffff1f; transform: translateX(3px); }
-    aside a.on    { background: var(--ac); color: #1a0d04; opacity: 1; font-weight: 700; }
+    aside a:hover { opacity: 1; background: var(--sbh); transform: translateX(3px); }
+    aside a.on    { background: var(--ac); color: var(--act); opacity: 1; font-weight: 700; box-shadow: var(--glow); }
 
-    main { margin-left: 220px; padding: 22px; max-width: 1080px; }
+    main { padding: 22px; max-width: 1180px; margin: 0 auto; }
 
     .top {
       display: flex;
@@ -246,7 +333,9 @@
     .t0 { background: var(--mu); }
 
     .bar   { height: 9px; background: var(--bd); border-radius: 9px; overflow: hidden; }
-    .bar i { display: block; height: 100%; background: var(--ok); border-radius: 9px; animation: grow 1s ease-out; }
+    .bar i { display: block; height: 100%; background: var(--s-ok); border-radius: 9px; animation: grow 1s ease-out; }
+    .bar i.low  { background: var(--s-low); }
+    .bar i.crit { background: var(--s-crit); }
 
     .note {
       background: var(--bg);
@@ -280,8 +369,8 @@
       font-weight: 800;
     }
     .q .g { flex: 1; }
-    .q.first    { border-color: var(--ac); box-shadow: 0 0 0 2px var(--ac) inset; }
-    .q.first .n { background: var(--ac); color: #1a0d04; }
+    .q.first    { border-color: var(--ac); box-shadow: 0 0 0 2px var(--ac) inset, 0 0 24px #86efac77; }
+    .q.first .n { background: var(--ac); color: var(--act); }
     .q.out      { animation: out .5s forwards; }
 
     /* ===================== Modal, toast & tutorial ===================== */
@@ -309,6 +398,25 @@
       transition: transform .35s cubic-bezier(.2, 1.4, .4, 1);
     }
     #toast.show { transform: translate(-50%, 0); }
+
+    /* Warning bar shown just before an automatic logout */
+    #idle {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 11;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 10px 16px;
+      background: var(--s-low);
+      color: #1f1400;
+      font-weight: 600;
+    }
+    #idle.show { display: flex; }
 
     .dots      { display: flex; gap: 5px; margin: 14px 0; }
     .dots i    { height: 5px; flex: 1; border-radius: 4px; background: var(--bd); transition: background .3s; }
@@ -361,10 +469,7 @@
     @media (max-width: 760px) {
       #login { grid-template-columns: 1fr; }
       .hero { padding: 28px; }
-      aside { position: static; width: auto; display: flex; gap: 4px; overflow-x: auto; }
-      aside h2 { display: none; }
-      aside a { white-space: nowrap; }
-      main { margin: 0; padding: 12px; }
+      main { padding: 12px; }
       .two, .cks { grid-template-columns: 1fr; }
     }
 
@@ -391,20 +496,30 @@
     <section class="side">
       <div class="box" id="lbox"></div>
     </section>
+    <button class="btn o s theme-btn" onclick="cycleTheme()" title="Switch between light, dark and your device's setting"></button>
   </div>
 
   <!-- ===================== Main app ===================== -->
   <div id="app">
-    <aside>
-      <h2>ReliefSys</h2>
+    <aside id="menu">
+      <div class="head">
+        <h2>ReliefSys</h2>
+        <button class="x" onclick="menu(false)" aria-label="Close menu">×</button>
+      </div>
       <nav id="nav"></nav>
+      <button class="btn o s theme-btn" onclick="cycleTheme()" title="Switch between light, dark and your device's setting"></button>
     </aside>
+    <div id="scrim" onclick="menu(false)"></div>
 
     <main>
       <div class="top">
-        <h1 id="title"></h1>
+        <div class="left">
+          <button class="menu-btn" onclick="menu(true)" aria-label="Open menu">☰</button>
+          <h1 id="title"></h1>
+        </div>
         <div>
           <span id="who" style="color:var(--mu);margin-right:8px"></span>
+          <button class="btn o s theme-btn" onclick="cycleTheme()" title="Switch between light, dark and your device's setting"></button>
           <button class="btn o s" onclick="tour(0)">How to use</button>
           <button class="btn o s" onclick="changePw()">Change password</button>
           <button class="btn o s" onclick="logout()">Log out</button>
@@ -416,6 +531,10 @@
 
   <div id="modal"><div class="box wide" id="mbox"></div></div>
   <div id="toast"></div>
+  <div id="idle" role="alert">
+    <span id="idleMsg"></span>
+    <button class="btn s" onclick="stayIn()">Stay logged in</button>
+  </div>
 
   <!-- QR code scanner library (used for the PhilSys ID scan on sign-up) -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
@@ -482,9 +601,13 @@
 
     // Beneficiaries  (dob = birthdate, fam = family size, cats = claimed categories (senior is added
     //                 from the birthdate), inc = income bracket, idt = ID type, idn = last 4 of the ID number
-    //                 (the full number never leaves the database), ver = ID verified, done = already served,
-    //                 by/verBy = who registered/verified, flags = warnings that need a closer look)
+    //                 (the full number never leaves the database), ver = ID verified, done = served at least once,
+    //                 last = date of their last relief pack, by/verBy = who registered/verified,
+    //                 flags = warnings that need a closer look)
     let B = [];
+
+    // Days a family waits before they can receive relief again (app_settings in the database)
+    let WAIT = 7;
 
     // Sponsors
     let S = [];
@@ -535,15 +658,21 @@
     };
     const HAND_ADJ = ["damaged", "lost", "recount_less", "recount_more"];   // the ones picked in "Stock adjustment"
 
+    // Sites (warehouses, distribution sites, evacuation centers) and transfers between them.
+    // Each stock batch in I[].lots has `site` (where it is) and `tr` (the transfer it's travelling on).
+    let SITES = [], TR = [];
+    const SITE_KINDS = ["Warehouse", "Distribution site", "Evacuation center"];
+    let serveSite = null;   // site chosen in the serve screen
+
     // me = the logged-in account's id in the database
     let role = "", user = "", me = "", cur = "Dashboard", toured = false, busy = false;
 
     // Pages each role can open. Logistics handles the goods, not the people, so it never sees beneficiaries.
     const MENU = {
-      "Admin":             ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Stock Movements", "Sponsors & Donations", "Distribution History", "Reports", "Users"],
-      "LGU Personnel":     ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sponsors & Donations", "Distribution History", "Reports"],
-      "NGO Staff":         ["Dashboard", "Priority Queue", "Inventory", "Sponsors & Donations", "Distribution History", "Reports"],
-      "Logistics Officer": ["Dashboard", "Inventory", "Stock Movements", "Sponsors & Donations", "Distribution History", "Reports"],
+      "Admin":             ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sites & Transfers", "Stock Movements", "Sponsors & Donations", "Distribution History", "Reports", "Users"],
+      "LGU Personnel":     ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sites & Transfers", "Sponsors & Donations", "Distribution History", "Reports"],
+      "NGO Staff":         ["Dashboard", "Priority Queue", "Inventory", "Sites & Transfers", "Sponsors & Donations", "Distribution History", "Reports"],
+      "Logistics Officer": ["Dashboard", "Inventory", "Sites & Transfers", "Stock Movements", "Sponsors & Donations", "Distribution History", "Reports"],
       "Volunteer":         ["Dashboard", "Beneficiaries", "Priority Queue"]
     };
 
@@ -559,6 +688,8 @@
     const usable = x => x.lots.filter(l => !expired(l));
     const rem = x => num(usable(x).reduce((s, l) => s + l.q, 0));         // stock that can still be given out
     const spoiled = x => num(x.lots.filter(expired).reduce((s, l) => s + l.q, 0));
+    // Color of an item's stock bar: plenty, running low (under 50%) or critical (under 20%)
+    const level = x => { const r = x.don ? rem(x) / x.don : 0; return r < .2 ? "crit" : r < .5 ? "low" : ""; };
     const nextExp = x => usable(x).map(l => l.exp).filter(Boolean).sort()[0] || "";
     const soon = x => nextExp(x) && nextExp(x) <= inDays(7);              // expires within a week
     const families = x => Math.floor(rem(x) / x.per);                     // families (or people) this item can still cover
@@ -566,6 +697,12 @@
     const reach = x => !x.give ? "not given out" : `${families(x)} ${x.basis === "person" ? "people" : "families"}`;
     const share = (x, fam) => num(x.per * (x.basis === "person" ? fam : 1));   // what one family gets
     const given = () => I.filter(x => x.give);                            // items handed to families
+
+    // Stock at one site (not counting goods on a truck), and stock on trucks
+    const remAt = (x, site) => num(usable(x).filter(l => l.site === site && !l.tr).reduce((s, l) => s + l.q, 0));
+    const transit = x => num(x.lots.filter(l => l.tr).reduce((s, l) => s + l.q, 0));
+    const siteName = id => (SITES.find(s => s.id === id) || {}).name || "—";
+    const waybill = id => "WB-" + String(id).padStart(5, "0");
 
     const staff = () => role === "Admin" || role === "LGU Personnel";     // can verify / delete
     const logi = () => role === "Admin" || role === "Logistics Officer";  // can adjust / write off stock
@@ -576,6 +713,17 @@
       return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
     };
     const minDob = () => (new Date().getFullYear() - MAX_AGE) + today().slice(4);
+    const plusDays = (d, n) => {                                          // yyyy-mm-dd + n days
+      const x = new Date(d + "T00:00");
+      x.setDate(x.getDate() + n);
+      return `${x.getFullYear()}-${pad2(x.getMonth() + 1)}-${pad2(x.getDate())}`;
+    };
+    const niceDate = d => new Date(d + "T00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+
+    // Relief rounds: a family can receive again WAIT days after their last pack.
+    // The database enforces this too; the page uses it to build the queue and warn early.
+    const nextServe = b => b.last ? plusDays(b.last, WAIT) : "";
+    const canServe = b => !b.last || today() >= nextServe(b);
 
     const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
     const mask = s => "•••• " + esc(s.slice(-4));
@@ -624,9 +772,9 @@
 
     // Priority Queue: best vulnerability tier first, then more high-priority needs first
     // (a pregnant PWD before someone only pregnant), then household income (poorest first),
-    // then registration order. Only ID-verified people enter.
+    // then registration order. Only ID-verified people enter, and only once their waiting period is over.
     const queue = () => B
-      .filter(b => !b.done && b.ver)
+      .filter(b => b.ver && canServe(b))
       .sort((a, b) => tier(a) - tier(b) || vulns(b) - vulns(a) || a.inc - b.inc || a.id - b.id);
 
     const pend = () => B.filter(b => !b.ver);
@@ -648,27 +796,31 @@
     }
 
     async function load() {
-      const [pr, ben, sp, it, lots, don, dist, mov] = await Promise.all([
+      const [pr, ben, sp, it, lots, don, dist, mov, st, trs, cfg] = await Promise.all([
         sb.from("profiles").select("id, username, name, role, status").order("created_at"),
         sb.from("beneficiaries")
-          .select("id, name, brgy, contact, dob, fam, cats, inc, id_type, id_last4, verified, served, registered_by, verified_by")
+          .select("id, name, brgy, contact, dob, fam, cats, inc, id_type, id_last4, verified, served, last_served, registered_by, verified_by")
           .order("id"),
         sb.from("sponsors").select("*").order("id"),
         sb.from("item_totals").select("*").order("id"),
-        sb.from("stock_lots").select("item_id, qty, exp").gt("qty", 0),
+        sb.from("stock_lots").select("item_id, qty, exp, site_id, transfer_id").gt("qty", 0),
         sb.from("donations").select("date, sponsor_id, item_id, received_as, qty, exp").order("id", { ascending: false }),
         sb.from("distributions")
           .select("id, date, beneficiary_id, served_by, served_role, distribution_items(item_id, qty)")
           .order("id", { ascending: false }),
-        sb.from("stock_movements").select("at, item_id, kind, qty, reason, by_user").order("id", { ascending: false })
+        sb.from("stock_movements").select("at, item_id, kind, qty, reason, by_user, site_id").order("id", { ascending: false }),
+        sb.from("sites").select("*").order("id"),
+        sb.from("transfers").select("*, transfer_items(item_id, qty_sent, qty_received)").order("id", { ascending: false }),
+        sb.from("app_settings").select("serve_wait_days").maybeSingle()
       ]);
-      const failed = [pr, ben, sp, it, lots, don, dist, mov].find(r => r.error);
+      const failed = [pr, ben, sp, it, lots, don, dist, mov, st, trs, cfg].find(r => r.error);
       if (failed) { toast(errMsg(failed.error)); return false; }
 
       P = pr.data;
+      if (cfg.data) WAIT = cfg.data.serve_wait_days;
       B = ben.data.map(b => ({
         id: b.id, name: b.name, brgy: b.brgy, contact: b.contact, dob: b.dob, fam: b.fam, cats: b.cats,
-        inc: b.inc, idt: b.id_type, idn: b.id_last4, ver: b.verified, done: b.served,
+        inc: b.inc, idt: b.id_type, idn: b.id_last4, ver: b.verified, done: b.served, last: b.last_served || "",
         byId: b.registered_by, by: uname(b.registered_by), verBy: b.verified_by ? uname(b.verified_by) : ""
       }));
       B.forEach(b => b.flags = flagsOf(b));
@@ -677,8 +829,12 @@
         id: x.id, item: x.name, cat: x.cat, measure: x.measure, per: +x.per, perish: x.perish,
         basis: x.basis, give: x.distribute,
         don: num(x.don), dist: num(x.dist), adj: num(x.adj),
-        lots: lots.data.filter(l => l.item_id === x.id).map(l => ({ q: +l.qty, exp: l.exp || "" }))
+        lots: lots.data.filter(l => l.item_id === x.id)
+          .map(l => ({ q: +l.qty, exp: l.exp || "", site: l.site_id, tr: l.transfer_id }))
       }));
+      SITES = st.data;
+      TR = trs.data;
+      if (!SITES.some(s => s.id === serveSite)) serveSite = (SITES.find(s => s.kind !== "Warehouse") || SITES[0] || {}).id;
 
       const itemName = id => (I.find(x => x.id === id) || {}).item || "—";
       DON = don.data.map(d => ({
@@ -696,7 +852,8 @@
       }));
       M = mov.data.map(m => ({
         date: m.at.slice(0, 10), item: itemName(m.item_id), kind: m.kind, q: +m.qty,
-        unit: (x => x ? unit(x) : "")(I.find(i => i.id === m.item_id)), reason: m.reason, by: uname(m.by_user)
+        unit: (x => x ? unit(x) : "")(I.find(i => i.id === m.item_id)), reason: m.reason, by: uname(m.by_user),
+        site: m.site_id ? siteName(m.site_id) : "—"
       }));
 
       // Sign-up details (ID submitted, QR) are only readable by Admins
@@ -867,7 +1024,7 @@
         <label>Username</label>
         <input id="u" autocomplete="username">
         <label>Password</label>
-        <input id="p" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()">
+        <div class="pw"><input id="p" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()">${EYE}</div>
 
         <div class="err" id="err"></div>
         <button class="btn" style="width:100%;margin-top:6px" onclick="login()">Log in</button>
@@ -920,11 +1077,11 @@
     // forced = right after logging in with a temporary password (the app stays locked until it's changed)
     function pwForm(forced) {
       return `
-        ${forced ? "" : `<label>Current password</label><input id="pw0" type="password" autocomplete="current-password">`}
+        ${forced ? "" : `<label>Current password</label><div class="pw"><input id="pw0" type="password" autocomplete="current-password">${EYE}</div>`}
         <label>New password (6+ characters)</label>
-        <input id="pw1" type="password" autocomplete="new-password">
+        <div class="pw"><input id="pw1" type="password" autocomplete="new-password">${EYE}</div>
         <label>New password again</label>
-        <input id="pw2" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')savePw(${forced})">
+        <div class="pw"><input id="pw2" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')savePw(${forced})">${EYE}</div>
         <div class="err" id="${forced ? "err" : "pwerr"}"></div>`;
     }
 
@@ -1025,7 +1182,7 @@
         </div>
 
         <label>Password (6+ characters)</label>
-        <input id="s10" type="password">
+        <div class="pw"><input id="s10" type="password" autocomplete="new-password">${EYE}</div>
         <div class="err" id="err"></div>
 
         <button class="btn" style="width:100%" onclick="signup()">Submit for approval</button>
@@ -1110,6 +1267,7 @@
       if (p.must_change) return showForcedPw();   // temporary password from an Admin: choose a new one first
       if (!(await load())) return;
 
+      stamp();   // start the inactivity timer fresh
       $("login").style.display = "none";
       $("app").style.display = "block";
       $("who").textContent = user + " · " + role;
@@ -1126,7 +1284,7 @@
     async function logout() {
       await sb.auth.signOut();
       role = user = me = "";
-      P = A = R = B = S = I = D = DON = M = [];
+      P = A = R = B = S = I = D = DON = M = SITES = TR = [];
       $("app").style.display = "none";
       $("login").style.display = "grid";
       showLogin();
@@ -1137,7 +1295,86 @@
        NAVIGATION & MODAL
        ========================================================= */
 
+    // ----- Light / Dark / Auto -----
+    // Auto follows the device setting. The choice is saved in this browser only.
+    const THEMES = { auto: "◐ Auto", light: "☀ Light", dark: "☾ Dark" };
+    function setTheme(t) {
+      if (t === "auto") delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = t;
+      try { localStorage.setItem("theme", t); } catch (e) {}
+      document.querySelectorAll(".theme-btn").forEach(b => b.textContent = THEMES[t]);
+    }
+    function cycleTheme() {
+      const now = document.documentElement.dataset.theme || "auto";
+      setTheme({ auto: "light", light: "dark", dark: "auto" }[now]);
+    }
+    setTheme(document.documentElement.dataset.theme || "auto");
+
+    // ----- Auto-logout after inactivity -----
+    // Relief-site computers are shared, so an unattended screen logs itself out.
+    // The last activity time is saved in the browser, so it also covers other tabs and reopening the page.
+    const IDLE_MIN = 15;   // minutes without activity before logging out
+    const WARN_SEC = 60;   // warning shown this many seconds before
+    let lastAct = Date.now(), idleOn = false;
+
+    function lastActive() {
+      let saved = 0;
+      try { saved = +localStorage.getItem("lastActive") || 0; } catch (e) {}
+      return Math.max(saved, role ? lastAct : 0);
+    }
+    function stamp() {
+      lastAct = Date.now();
+      try { localStorage.setItem("lastActive", lastAct); } catch (e) {}
+    }
+
+    // Any activity counts, except while the warning is up: then only the button keeps you in
+    ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "wheel"].forEach(ev =>
+      addEventListener(ev, () => { if (role && !idleOn && Date.now() - lastAct > 5000) stamp(); }, { passive: true }));
+
+    function stayIn() {
+      idleOn = false;
+      $("idle").classList.remove("show");
+      stamp();
+    }
+
+    setInterval(async () => {
+      if (!role) return;
+      const left = IDLE_MIN * 60 - Math.floor((Date.now() - lastActive()) / 1000);
+      if (left <= 0) {
+        idleOn = false;
+        $("idle").classList.remove("show");
+        close_();
+        menu(false);
+        await logout();
+        $("err").textContent = `You were logged out after ${IDLE_MIN} minutes of inactivity.`;
+      } else if (left <= WARN_SEC) {
+        idleOn = true;
+        $("idleMsg").textContent = `No activity for a while. You'll be logged out in ${left} s.`;
+        $("idle").classList.add("show");
+      } else if (idleOn) {
+        stayIn();   // activity in another tab kept the session going
+      }
+    }, 1000);
+
+    // ----- Show / Hide password -----
+    // The button keeps focus off the field, so the text cursor stays where it was
+    const EYE = `<button type="button" class="eye" onmousedown="event.preventDefault()" onclick="peek(this)" aria-label="Show password">Show</button>`;
+    function peek(b) {
+      const f = b.previousElementSibling, show = f.type === "password";
+      f.type = show ? "text" : "password";
+      b.textContent = show ? "Hide" : "Show";
+      b.setAttribute("aria-label", show ? "Hide password" : "Show password");
+    }
+
+    // Opens or closes the slide-in menu
+    function menu(open) {
+      $("menu").classList.toggle("open", open);
+      $("scrim").classList.toggle("open", open);
+    }
+    addEventListener("keydown", e => { if (e.key === "Escape") menu(false); });
+
     function go(page) {
+      menu(false);
       cur = page;
       $("title").textContent = page;
       $("nav").innerHTML = MENU[role]
@@ -1195,14 +1432,17 @@
       ["Understand the priority queue",
        "Order is decided in four steps: vulnerability group first, then how many high-priority needs the person has (a pregnant PWD before someone only pregnant), then household income with the poorest first, then who registered earlier. Donations and job titles never change the order.", "q", ALL_BUT_LOGI],
       ["Serve the next person",
-       "In <b>Priority Queue</b>, press <b>Serve Next</b> on the first card. Check the goods list and confirm. Inventory goes down and the transaction is saved.", "i",
+       "In <b>Priority Queue</b>, press <b>Serve Next</b> on the first card. Choose the site you're serving at, check the goods list and confirm. Only that site's stock is used, and the transaction is saved.", "i",
        ALL_BUT_LOGI],
       ["Record donations",
        "In <b>Sponsors & Donations</b>, add a sponsor, then record the donation. Choose bulk or packs and the unit (for example 100 bottles × 500 mL). The system converts it to the item's base unit, so 1000 L of bulk milk and 50 L of bottled milk go into the same stock. Perishables need an expiry date and are given out soonest-expiring first.", "i",
        ["Admin", "LGU Personnel", "NGO Staff", "Logistics Officer"]],
       ["Manage the stock",
-       "In <b>Inventory</b>, press <b>Adjust</b> when goods are damaged, lost, or a recount doesn't match. Every change needs a reason and is saved in <b>Stock Movements</b> with your name. When stock expires, dispose of it and press <b>Write off expired</b>. Press <b>Sort</b> to turn mixed donations, like sacks of unsorted clothes, into the items families receive (men's, women's, children's clothes), and <b>Give out / Stop giving</b> to choose which items are handed out.", "i",
+       "In <b>Inventory</b>, press <b>Adjust</b> when goods at a site are damaged, lost, or a recount doesn't match. Every change needs a reason and is saved in <b>Stock Movements</b> with your name. When stock expires, dispose of it and press <b>Write off expired</b>. Press <b>Sort</b> to turn mixed donations, like sacks of unsorted clothes, into the items families receive (men's, women's, children's clothes), and <b>Give out / Stop giving</b> to choose which items are handed out.", "i",
        ["Admin", "Logistics Officer"]],
+      ["Move goods between sites",
+       "<b>Sites &amp; Transfers</b> shows how much of each item every warehouse, barangay hall and evacuation center holds. Logistics presses <b>Dispatch goods</b> to send stock by truck and prints the <b>waybill</b> for the driver. When the goods arrive, the receiving site presses <b>Receive</b> and enters what actually came. Any shortage is logged automatically.", "i",
+       ["Admin", "LGU Personnel", "NGO Staff", "Logistics Officer"]],
       ["Check reports and accounts",
        "Use <b>Reports</b> to print or save PDF summaries. Admins approve new accounts in <b>Users</b> after checking their ID, and handle <b>Forgot password</b> requests there by giving a temporary password in person. Anyone can change their own password with <b>Change password</b> at the top.", "",
        ["Admin", "LGU Personnel", "NGO Staff", "Logistics Officer"]]
@@ -1273,7 +1513,7 @@
           I.filter(x => x.cat === c).map(x => `
           <p style="margin:6px 0 3px">${esc(x.item)} <span style="color:var(--mu)">· ${rem(x)} ${unit(x)} left of ${x.don} ${unit(x)}
             · ${reach(x)}</span>${soon(x) ? ` <span style="color:var(--p2)">· expires ${nextExp(x)}</span>` : ""}</p>
-          <div class="bar"><i style="width:${x.don ? rem(x) / x.don * 100 : 0}%"></i></div>`).join("")).join("");
+          <div class="bar"><i class="${level(x)}" style="width:${x.don ? rem(x) / x.don * 100 : 0}%"></i></div>`).join("")).join("");
 
         const next = q[0]
           ? esc(q[0].name) + " " + tag(q[0]) + ` <span style="color:var(--mu)">· ${INC[q[0].inc]}</span>`
@@ -1293,7 +1533,9 @@
           const warn = !b.ver && b.flags.length
             ? ` <span class="tag t1" title="${esc(b.flags.join("\n"))}">${b.flags.length} warning${b.flags.length > 1 ? "s" : ""}</span>`
             : "";
-          const status = !b.ver ? '<span class="tag t0">Needs ID check</span>' + warn : b.done ? "Served" : "Waiting";
+          const status = !b.ver ? '<span class="tag t0">Needs ID check</span>' + warn
+            : !canServe(b) ? `Served ${niceDate(b.last)}<br><span style="color:var(--mu);font-size:12px">Back in queue ${niceDate(nextServe(b))}</span>`
+            : "In queue" + (b.last ? `<br><span style="color:var(--mu);font-size:12px">Last served ${niceDate(b.last)}</span>` : "");
           const actions = staff()
             ? (!b.ver ? `<button class="btn s" onclick="ver(${b.id})">Verify ID</button> ` : "")
               + `<button class="btn o s" onclick="delB(${b.id})">Delete</button>`
@@ -1361,9 +1603,20 @@
             <span style="color:var(--mu)">${p.map(b => esc(b.name)).join(", ")}. An LGU or Admin must verify them in Beneficiaries.</span>
           </div>` : "";
 
+        // Families served recently, and when they come back
+        const resting = B.filter(b => b.ver && !canServe(b));
+        const round = `
+          <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+            <span>Families can receive relief again <b>${WAIT} day${WAIT > 1 ? "s" : ""}</b> after their last pack.
+              <span style="color:var(--mu)">${resting.length} served recently, not in the queue yet.</span></span>
+            ${role === "Admin" ? `<button class="btn o s" onclick="setWait()">Change</button>` : ""}
+          </div>`;
+
         return `
           <p style="color:var(--mu)">Vulnerability group, then most high-priority needs, then poorest household first, then registration order.</p>
-          ${cards || "<div class='card'>Queue is empty. Everyone verified has been served.</div>"}
+          ${round}
+          ${cards || `<div class='card'>Queue is empty. Everyone verified has received relief this round.
+            ${resting.length ? `Next family is back on <b>${niceDate(resting.map(nextServe).sort()[0])}</b>.` : ""}</div>`}
           ${waiting}`;
       },
 
@@ -1371,7 +1624,6 @@
         const row = x => {
           const u = unit(x);
           const pct = x.don ? rem(x) / x.don * 100 : 0;
-          const low = !x.don || rem(x) / x.don < .2 ? "background:var(--p1)" : "";
           const exp = !x.perish ? `<span style="color:var(--mu)">—</span>`
             : (nextExp(x) ? `<span style="${soon(x) ? "color:var(--p2)" : ""}">${nextExp(x)}</span>` : "")
               + (spoiled(x) ? `<br><span style="color:var(--p1)">${spoiled(x)} ${u} expired</span>` : "");
@@ -1385,7 +1637,7 @@
               <td>${x.give ? `${x.per} ${u} per ${whom(x)}<br><span style="color:var(--mu);font-size:12px">${reach(x)}</span>`
                 : `<span class="tag t0" title="Kept in storage. Sort or repack it into items that are given out">Not given out</span>`}</td>
               <td>${exp}</td>
-              <td style="min-width:110px"><div class="bar"><i style="width:${pct}%;${low}"></i></div></td>
+              <td style="min-width:110px"><div class="bar"><i class="${level(x)}" style="width:${pct}%"></i></div></td>
               ${logi() ? `<td>
                 <button class="btn o s" onclick="addAdj(${x.id})">Adjust</button>
                 <button class="btn o s" onclick="addSort(${x.id})">Sort</button>
@@ -1465,11 +1717,79 @@
           </div>`;
       },
 
+      // Where the stock is, and the trucks moving it
+      "Sites & Transfers"() {
+        // One column per site, plus goods on trucks
+        const head = SITES.map(s => `<th>${esc(s.name)}<br><span style="font-weight:400">${s.kind}</span></th>`).join("");
+        const stock = I.map(x => `
+          <tr>
+            <td>${esc(x.item)}</td>
+            ${SITES.map(s => { const q = remAt(x, s.id); return `<td style="${q ? "" : "color:var(--mu)"}">${q} ${unit(x)}</td>`; }).join("")}
+            <td style="color:${transit(x) ? "var(--p2)" : "var(--mu)"}">${transit(x)} ${unit(x)}</td>
+          </tr>`).join("");
+
+        const status = t => `<span class="tag ${t.status === "Delivered" ? "t3" : t.status === "Cancelled" ? "t0" : "t2"}">${t.status}</span>`;
+        const trRows = TR.map(t => {
+          const items = t.transfer_items.map(ti => {
+            const x = I.find(i => i.id === ti.item_id) || { item: "—", measure: "count" };
+            const short = ti.qty_received != null && +ti.qty_received < +ti.qty_sent;
+            return `${esc(x.item)} ${+ti.qty_sent} ${unit(x)}` +
+              (short ? ` <span style="color:var(--p1)">(got ${+ti.qty_received})</span>` : "");
+          }).join("<br>");
+          const canAct = t.status === "In transit";
+          return `
+            <tr>
+              <td><b>${waybill(t.id)}</b><br><span style="color:var(--mu);font-size:12px">${t.sent_at.slice(0, 10)}</span></td>
+              <td>${esc(siteName(t.from_site))} →<br>${esc(siteName(t.to_site))}</td>
+              <td style="white-space:normal">${items}</td>
+              <td>${esc(t.vehicle)}<br><span style="color:var(--mu);font-size:12px">${esc(t.driver)}</span></td>
+              <td>${status(t)}${t.received_at && t.status === "Delivered"
+                ? `<br><span style="color:var(--mu);font-size:12px">${t.received_at.slice(0, 10)} · ${esc(uname(t.received_by))}</span>` : ""}</td>
+              <td>
+                <button class="btn o s" onclick="printWaybill(${t.id})">Waybill</button>
+                ${canAct && (logi() || role === "LGU Personnel") ? `<button class="btn s" onclick="receiveTr(${t.id})">Receive</button>` : ""}
+                ${canAct && logi() ? `<button class="btn o s" onclick="cancelTr(${t.id})">Cancel</button>` : ""}
+              </td>
+            </tr>`;
+        }).join("");
+
+        return `
+          <div class="top">
+            <span style="color:var(--mu)">Usable stock at each site. Goods on a truck count as "in transit" until the site receives them.</span>
+            ${logi() ? `<div>
+              <button class="btn o" onclick="addSite()">+ Add site</button>
+              <button class="btn a" onclick="addTransfer()">+ Dispatch goods</button>
+            </div>` : ""}
+          </div>
+
+          <div class="card tw">
+            <b>Stock by site</b>
+            <table>
+              <tr><th>Item</th>${head}<th>In transit</th></tr>
+              ${stock}
+            </table>
+          </div>
+
+          <div class="card tw">
+            <b>Transfers</b>
+            <table>
+              <tr><th>Waybill</th><th>From → to</th><th>Goods</th><th>Vehicle / driver</th><th>Status</th><th></th></tr>
+              ${trRows || `<tr><td colspan="6" style="color:var(--mu)">No transfers yet.</td></tr>`}
+            </table>
+          </div>
+          <div class="note">
+            Dispatching takes the goods from the sending site, soonest-expiring first. When they arrive, the receiving
+            site enters what actually came; any shortage is logged in Stock Movements as lost.
+            New donations go to the Central Warehouse.
+          </div>`;
+      },
+
       "Stock Movements"() {
         const rows = M.map(m => `
           <tr>
             <td>${m.date}</td>
             <td>${esc(m.item)}</td>
+            <td>${esc(m.site)}</td>
             <td>${MOVES[m.kind] || m.kind}</td>
             <td style="color:${m.q < 0 ? "var(--p1)" : "var(--ok)"}"><b>${m.q > 0 ? "+" : ""}${m.q} ${m.unit}</b></td>
             <td style="white-space:normal">${esc(m.reason)}</td>
@@ -1484,8 +1804,8 @@
 
           <div class="card tw">
             <table>
-              <tr><th>Date</th><th>Item</th><th>Type</th><th>Change</th><th>Reason</th><th>By</th></tr>
-              ${rows || `<tr><td colspan="6" style="color:var(--mu)">No adjustments yet.</td></tr>`}
+              <tr><th>Date</th><th>Item</th><th>Site</th><th>Type</th><th>Change</th><th>Reason</th><th>By</th></tr>
+              ${rows || `<tr><td colspan="7" style="color:var(--mu)">No adjustments yet.</td></tr>`}
             </table>
           </div>`;
       },
@@ -1815,20 +2135,59 @@
     }
 
     // ----- Distribution -----
-    function serve(id) {
+    // Other people who look like the same household (same contact number, or same surname in the same
+    // barangay) and received relief this round. Only a warning: the distributor asks and decides.
+    function household(b) {
+      const phone = s => String(s || "").replace(/\D/g, "").slice(-10);
+      const surname = s => String(s).trim().toLowerCase().split(/\s+/).pop();
+      return B.filter(o => o.id !== b.id && o.last && !canServe(o)).map(o => {
+        const why = phone(b.contact).length >= 7 && phone(o.contact) === phone(b.contact) ? "same contact number"
+          : b.brgy !== "—" && o.brgy.toLowerCase() === b.brgy.toLowerCase() && surname(o.name) === surname(b.name) ? "same surname and barangay"
+          : "";
+        return why ? { ...o, why } : null;
+      }).filter(Boolean);
+    }
+
+    // Admin: how many days before a family can receive again
+    function setWait() {
+      modal(`
+        <h3>Days between relief packs</h3>
+        <p style="color:var(--mu)">A family that received relief goes back into the queue after this many days.
+          The database refuses to serve them again sooner, at every site.</p>
+        <label>Days</label>
+        <input id="wd" type="number" min="1" max="365" value="${WAIT}">
+        <div class="actions">
+          <button class="btn a" onclick="saveWait()">Save</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+    }
+
+    async function saveWait() {
+      const d = +$("wd").value;
+      if (!Number.isInteger(d) || d < 1 || d > 365) return toast("Enter a whole number of days from 1 to 365");
+      if (!(await act(sb.from("app_settings").update({ serve_wait_days: d }).eq("id", 1), `Saved · families wait ${d} day${d > 1 ? "s" : ""}`))) return;
+      close_();
+      go("Priority Queue");
+    }
+
+    function serve(id, site) {
+      if (site) serveSite = +site;
       const b = B.find(x => x.id == id);
+      const here = x => remAt(x, serveSite);   // only the stock at the site where you're serving
+      const sitePick = SITES.map(s => `<option value="${s.id}" ${s.id === serveSite ? "selected" : ""}>${esc(s.name)} · ${s.kind}</option>`).join("");
       // Per-person items are multiplied by the family size. Items without enough stock are skipped.
       const goods = given().map(x => {
-        const amt = share(x, b.fam), short = rem(x) < amt;
+        const amt = share(x, b.fam), short = here(x) < amt;
         return `
         <tr style="${short ? "opacity:.6" : ""}">
           <td>${esc(x.item)}</td>
           <td>${short ? "<s>" : ""}${amt} ${unit(x)}${short ? "</s>" : ""}
             ${x.basis === "person" ? `<span style="color:var(--mu);font-size:12px">(${x.per} × ${b.fam} people)</span>` : ""}</td>
-          <td style="color:${short ? "var(--p1)" : "var(--mu)"}">${short ? "Not enough · skipped" : rem(x) + " " + unit(x) + " left"}</td>
+          <td style="color:${short ? "var(--p1)" : "var(--mu)"}">${short ? "Not enough here · skipped" : here(x) + " " + unit(x) + " here"}</td>
         </tr>`;
       }).join("");
-      const skipped = given().filter(x => rem(x) < share(x, b.fam));
+      const skipped = given().filter(x => here(x) < share(x, b.fam));
+      const kin = household(b);
 
       modal(`
         <h3>Distribute relief goods</h3>
@@ -1836,10 +2195,19 @@
           <b>${esc(b.name)}</b> ${tag(b)}<br>
           <span style="color:var(--mu)">${esc(b.brgy)} · ${b.idt.split(" ")[0]} ${mask(b.idn)} · family of ${b.fam}</span>
         </p>
+        ${kin.length ? `<div class="card warn" style="margin:0 0 10px">
+          <b>Possibly the same household already received relief</b><br>
+          ${kin.map(o => `${esc(o.name)} · ${esc(o.brgy)} · served ${niceDate(o.last)}
+            <span style="color:var(--mu)">(${o.why})</span>`).join("<br>")}<br>
+          <span style="color:var(--mu);font-size:12px">Ask if they live together. If they do, skip this family until ${niceDate(nextServe(kin[0]))}.</span>
+        </div>` : ""}
+
+        <label>Serving at</label>
+        <select onchange="serve(${id}, this.value)">${sitePick}</select>
 
         <table>${goods || `<tr><td style="color:var(--mu)">No items are set to be given out.</td></tr>`}</table>
         ${skipped.length ? `<div class="note">Out of stock for this family: <b>${skipped.map(x => esc(x.item)).join(", ")}</b>.
-          They'll get everything else now. Record a donation or ask Logistics to sort stock to cover the rest.</div>` : ""}
+          They'll get everything else now. Ask Logistics to dispatch more to this site.</div>` : ""}
 
         <div class="actions">
           <button class="btn a" onclick="confirmServe(${id})">Confirm distribution</button>
@@ -1849,7 +2217,8 @@
 
     async function confirmServe(id) {
       const b = B.find(x => x.id == id);
-      if (!given().some(x => rem(x) >= share(x, b.fam))) return toast("Nothing in stock to give out");
+      if (!serveSite) return toast("Pick the site you're serving at");
+      if (!given().some(x => remAt(x, serveSite) >= share(x, b.fam))) return toast(`Nothing in stock at ${siteName(serveSite)}`);
 
       // The database takes the stock soonest-expiring first, skips items that ran short,
       // marks the person served and saves the history in one step, so two people
@@ -1857,11 +2226,15 @@
       if (busy) return;
       busy = true;
       let res;
-      try { res = await sb.rpc("serve_beneficiary", { ben_id: id }); }
+      try { res = await sb.rpc("serve_beneficiary_at", { ben_id: id, p_site: serveSite }); }
       catch (e) { res = { error: { message: "Can't reach the database. Check your internet connection" } }; }
       finally { busy = false; }
       const { data: skipped, error } = res;
-      if (error) return toast(errMsg(error));
+      if (error) {
+        // Served at another site a moment ago: refresh so the card leaves the queue here too
+        if (/already received/i.test(error.message)) { await load(); close_(); go("Priority Queue"); }
+        return toast(errMsg(error));
+      }
       await load();
 
       // Slide the card out, then refresh the queue
@@ -1932,13 +2305,17 @@
     // id = item to adjust; leave it out to pick the item in the form
     function addAdj(id) {
       if (!I.length) return toast("Add a relief item first");
-      const items = I.map(x => `<option value="${x.id}" ${x.id === id ? "selected" : ""}>${esc(x.item)} (${rem(x)} ${unit(x)} left)</option>`).join("");
+      if (!SITES.length) return toast("Add a site first");
+      const items = I.map(x => `<option value="${x.id}" ${x.id === id ? "selected" : ""}>${esc(x.item)} (${rem(x)} ${unit(x)} in all)</option>`).join("");
       const kinds = HAND_ADJ.map(k => `<option value="${k}">${MOVES[k]}</option>`).join("");
+      const sites = SITES.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("");
 
       modal(`
         <h3>Stock adjustment</h3>
-        <label>Item</label>
-        <select id="a1" onchange="adjForm()">${items}</select>
+        <div class="two">
+          <div><label>Item</label><select id="a1" onchange="adjForm()">${items}</select></div>
+          <div><label>At site</label><select id="a6" onchange="adjForm()">${sites}</select></div>
+        </div>
         <label>What happened</label>
         <select id="a2" onchange="adjForm()">${kinds}</select>
         <label>Amount (<span id="au"></span>)</label>
@@ -1955,34 +2332,37 @@
           <button class="btn a" onclick="saveAdj()">Save adjustment</button>
           <button class="btn o" onclick="close_()">Cancel</button>
         </div>`);
+      // Start at the site that holds the most of this item
+      const x = I.find(i => i.id === +$("a1").value);
+      $("a6").value = [...SITES].sort((a, b) => remAt(x, b.id) - remAt(x, a.id))[0].id;
       adjForm();
     }
 
-    // Shows the unit, the expiry field (only when adding perishable stock) and the result
+    // Shows the unit, the expiry field (only when adding perishable stock) and the result at the chosen site
     function adjForm() {
-      const x = I.find(i => i.id === +$("a1").value);
+      const x = I.find(i => i.id === +$("a1").value), site = +$("a6").value, here = remAt(x, site);
       const add = $("a2").value === "recount_more";
       const q = num(+$("a3").value || 0);
       $("au").textContent = unit(x);
       $("aex").style.display = add && x.perish ? "" : "none";
-      $("anote").innerHTML = !q ? `Now ${rem(x)} ${unit(x)} usable.`
-        : !add && q > rem(x) ? `<span style="color:var(--p1)">Only ${rem(x)} ${unit(x)} usable. You can't remove more than that.</span>`
-        : `${rem(x)} ${unit(x)} → <b>${num(rem(x) + (add ? q : -q))} ${unit(x)}</b>`
+      $("anote").innerHTML = !q ? `${esc(siteName(site))} has ${here} ${unit(x)} usable.`
+        : !add && q > here ? `<span style="color:var(--p1)">Only ${here} ${unit(x)} usable at ${esc(siteName(site))}. You can't remove more than that.</span>`
+        : `${esc(siteName(site))}: ${here} ${unit(x)} → <b>${num(here + (add ? q : -q))} ${unit(x)}</b>`
           + (add ? "" : " · taken from the soonest-expiring batch first");
     }
 
     async function saveAdj() {
-      const x = I.find(i => i.id === +$("a1").value);
+      const x = I.find(i => i.id === +$("a1").value), site = +$("a6").value;
       const kind = $("a2").value, q = num(+$("a3").value), reason = $("a4").value.trim();
       const exp = kind === "recount_more" && x.perish ? $("a5").value : "";
 
       if (!(q > 0))                         return toast("Enter an amount above 0");
-      if (kind !== "recount_more" && q > rem(x)) return toast(`Only ${rem(x)} ${unit(x)} usable`);
+      if (kind !== "recount_more" && q > remAt(x, site)) return toast(`Only ${remAt(x, site)} ${unit(x)} usable at ${siteName(site)}`);
       if (!reason)                          return toast("Give a reason for the adjustment");
       if (kind === "recount_more" && x.perish && !exp) return toast("Perishable item · enter the expiry date");
 
-      const ok = await act(sb.rpc("adjust_stock", { p_item: x.id, p_kind: kind, p_qty: q, p_reason: reason, p_exp: exp || null }),
-        `${MOVES[kind]} · ${kind === "recount_more" ? "+" : "−"}${q} ${unit(x)} ${x.item}`);
+      const ok = await act(sb.rpc("adjust_stock", { p_item: x.id, p_kind: kind, p_qty: q, p_reason: reason, p_site: site, p_exp: exp || null }),
+        `${MOVES[kind]} · ${kind === "recount_more" ? "+" : "−"}${q} ${unit(x)} ${x.item} at ${siteName(site)}`);
       if (!ok) return;
 
       close_();
@@ -2004,6 +2384,9 @@
       const src = I.find(x => x.id === id);
       sortSrc = id;
       if (!rem(src)) return toast(`No usable ${src.item} to sort`);
+      // Sites that have some of it, the one with the most first
+      const at = SITES.filter(s => remAt(src, s.id) > 0).sort((a, b) => remAt(src, b.id) - remAt(src, a.id));
+      if (!at.length) return toast(`All usable ${src.item} is in transit. Sort it after it arrives`);
       const others = I.filter(x => x.id !== id);
       if (!others.length) return toast("Add the items it will be sorted into first (e.g. Men's clothes)");
 
@@ -2013,8 +2396,18 @@
 
       modal(`
         <h3>Sort / repack ${esc(src.item)}</h3>
-        <label>Take from ${esc(src.item)} (${unit(src)}, ${rem(src)} usable)</label>
-        <input id="s_q" type="number" min="0" step="any" value="${rem(src)}" oninput="sortCalc()">
+        <div class="two">
+          <div>
+            <label>At site</label>
+            <select id="s_site" onchange="$('s_q').value = remAt(I.find(x => x.id === sortSrc), +this.value); sortCalc()">
+              ${at.map(s => `<option value="${s.id}">${esc(s.name)} (${remAt(src, s.id)} ${unit(src)})</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label>Take (${unit(src)})</label>
+            <input id="s_q" type="number" min="0" step="any" value="${remAt(src, at[0].id)}" oninput="sortCalc()">
+          </div>
+        </div>
 
         <label>Sorted into (leave 0 for any you didn't get)</label>
         <div id="s_rows">${outs.map(o => sortRow(o)).join("")}</div>
@@ -2055,17 +2448,17 @@
     }
 
     async function saveSort(id) {
-      const src = I.find(x => x.id === id);
+      const src = I.find(x => x.id === id), site = +$("s_site").value;
       const q = num(+$("s_q").value), outs = sortRows(), note = $("s_n").value.trim();
 
       if (!(q > 0))        return toast("Enter how much was taken");
-      if (q > rem(src))    return toast(`Only ${rem(src)} ${unit(src)} usable`);
+      if (q > remAt(src, site)) return toast(`Only ${remAt(src, site)} ${unit(src)} usable at ${siteName(site)}`);
       if (!outs.length)    return toast("Enter at least one item it was sorted into");
       if (new Set(outs.map(o => o.item_id)).size < outs.length) return toast("Each item can only be listed once");
       if (!note)           return toast("Add a note about the sorting");
 
-      const ok = await act(sb.rpc("repack_stock", { p_from: id, p_qty: q, p_outputs: outs, p_note: note }),
-        `Sorted ${q} ${unit(src)} ${src.item} into ${outs.length} item(s)`);
+      const ok = await act(sb.rpc("repack_stock", { p_from: id, p_qty: q, p_outputs: outs, p_note: note, p_site: site }),
+        `Sorted ${q} ${unit(src)} ${src.item} into ${outs.length} item(s) at ${siteName(site)}`);
       if (!ok) return;
 
       close_();
@@ -2080,6 +2473,217 @@
 
       if (await act(sb.from("items").update({ distribute: on }).eq("id", id),
         on ? `${x.item} is now given out` : `${x.item} is no longer given out`)) go(cur);
+    }
+
+    // ----- Sites -----
+    function addSite() {
+      modal(`
+        <h3>Add site</h3>
+        <label>Name</label>
+        <input id="t1" placeholder="e.g. Antipolo Elementary School">
+        <div class="two">
+          <div><label>Type</label><select id="t2">${SITE_KINDS.map(k => `<option>${k}</option>`).join("")}</select></div>
+          <div><label>Barangay</label><input id="t3" placeholder="e.g. Brgy. Antipolo"></div>
+        </div>
+        <div class="actions">
+          <button class="btn a" onclick="saveSite()">Save</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+    }
+
+    async function saveSite() {
+      const name = $("t1").value.trim();
+      if (!name) return toast("Enter the site name");
+      if (await act(sb.from("sites").insert({ name, kind: $("t2").value, brgy: $("t3").value.trim() || null }), "Site added")) {
+        close_();
+        go("Sites & Transfers");
+      }
+    }
+
+    // ----- Dispatch (send goods from one site to another) -----
+    function addTransfer() {
+      if (SITES.length < 2) return toast("Add at least two sites first");
+      const from = (SITES.find(s => s.kind === "Warehouse") || SITES[0]).id;
+      const to = (SITES.find(s => s.id !== from && s.kind !== "Warehouse") || SITES.find(s => s.id !== from)).id;
+      const opts = sel => SITES.map(s => `<option value="${s.id}" ${s.id === sel ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+
+      modal(`
+        <h3>Dispatch goods</h3>
+        <div class="two">
+          <div><label>From</label><select id="d1" onchange="trRows()">${opts(from)}</select></div>
+          <div><label>To</label><select id="d2">${opts(to)}</select></div>
+        </div>
+
+        <label>Goods (amount in each item's unit)</label>
+        <div id="d_rows"></div>
+        <button class="btn o s" style="margin-top:6px" onclick="$('d_rows').insertAdjacentHTML('beforeend', trRow())">+ Another item</button>
+
+        <div class="two">
+          <div><label>Vehicle</label><input id="d3" placeholder="e.g. LGU truck ABC 1234"></div>
+          <div><label>Driver</label><input id="d4" placeholder="e.g. Mario Reyes"></div>
+        </div>
+        <label>Note (optional)</label>
+        <input id="d5" placeholder="e.g. For the evacuees arriving tonight">
+
+        <div class="actions">
+          <button class="btn a" onclick="saveTransfer()">Dispatch</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+      trRows();
+    }
+
+    // One goods line: only items the sending site has
+    function trRow() {
+      const from = +$("d1").value;
+      const opts = I.filter(x => remAt(x, from) > 0)
+        .map(x => `<option value="${x.id}">${esc(x.item)} (${remAt(x, from)} ${unit(x)} there)</option>`).join("");
+      return opts
+        ? `<div class="two d_row" style="margin-top:6px"><select class="d_i">${opts}</select>
+             <input class="d_v" type="number" min="0" step="any" placeholder="Amount"></div>`
+        : `<p class="d_row" style="color:var(--mu)">${esc(siteName(from))} has no usable stock.</p>`;
+    }
+
+    // Changing the sending site starts the goods list again
+    function trRows() { $("d_rows").innerHTML = trRow(); }
+
+    async function saveTransfer() {
+      const from = +$("d1").value, to = +$("d2").value;
+      const goods = [...document.querySelectorAll(".d_row")].filter(r => r.querySelector(".d_i"))
+        .map(r => ({ item_id: +r.querySelector(".d_i").value, qty: num(+r.querySelector(".d_v").value || 0) }))
+        .filter(g => g.qty > 0);
+
+      if (from === to)                     return toast("Pick two different sites");
+      if (!goods.length)                   return toast("Enter the amount of at least one item");
+      if (new Set(goods.map(g => g.item_id)).size < goods.length) return toast("Each item can only be listed once");
+      const over = goods.find(g => g.qty > remAt(I.find(x => x.id === g.item_id), from));
+      if (over) { const x = I.find(i => i.id === over.item_id); return toast(`Only ${remAt(x, from)} ${unit(x)} ${x.item} at ${siteName(from)}`); }
+      if (!$("d3").value.trim() || !$("d4").value.trim()) return toast("Enter the vehicle and the driver");
+
+      if (busy) return;
+      busy = true;
+      let res;
+      try {
+        res = await sb.rpc("dispatch_transfer", { p_from: from, p_to: to, p_items: goods,
+          p_vehicle: $("d3").value.trim(), p_driver: $("d4").value.trim(), p_note: $("d5").value.trim() || null });
+      } catch (e) { res = { error: { message: "Can't reach the database. Check your internet connection" } }; }
+      finally { busy = false; }
+      if (res.error) return toast(errMsg(res.error));
+
+      await load();
+      go("Sites & Transfers");
+      // Offer the waybill right away, it travels with the driver
+      modal(`
+        <h3>Dispatched · ${waybill(res.data)}</h3>
+        <p>${goods.length} item(s) from <b>${esc(siteName(from))}</b> to <b>${esc(siteName(to))}</b> are now in transit.</p>
+        <div class="note">Print the waybill for the driver. The receiving site signs it and presses <b>Receive</b> when the goods arrive.</div>
+        <div class="actions">
+          <button class="btn a" onclick="printWaybill(${res.data})">Print waybill</button>
+          <button class="btn o" onclick="close_()">Done</button>
+        </div>`);
+    }
+
+    // ----- Receive (proof of delivery) -----
+    function receiveTr(id) {
+      const t = TR.find(x => x.id === id);
+      const rows = t.transfer_items.map(ti => {
+        const x = I.find(i => i.id === ti.item_id);
+        return `
+          <tr>
+            <td>${esc(x.item)}</td>
+            <td>${+ti.qty_sent} ${unit(x)}</td>
+            <td><input class="r_v" data-item="${ti.item_id}" data-sent="${+ti.qty_sent}" type="number" min="0"
+                 max="${+ti.qty_sent}" step="any" value="${+ti.qty_sent}" style="width:110px" oninput="rcvCalc()"> ${unit(x)}</td>
+          </tr>`;
+      }).join("");
+
+      modal(`
+        <h3>Receive ${waybill(id)}</h3>
+        <p style="color:var(--mu)">${esc(siteName(t.from_site))} → <b>${esc(siteName(t.to_site))}</b> · ${esc(t.vehicle)} · ${esc(t.driver)}</p>
+        <p>Count what actually arrived. Lower the number for anything missing or damaged.</p>
+        <table><tr><th>Item</th><th>Sent</th><th>Received</th></tr>${rows}</table>
+        <label>Note (needed if something is short)</label>
+        <input id="r_n" placeholder="e.g. 2 sacks torn and wet on arrival">
+        <div class="note" id="r_sum"></div>
+        <div class="actions">
+          <button class="btn a" onclick="saveReceive(${id})">Confirm delivery</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+      rcvCalc();
+    }
+
+    function rcvCalc() {
+      const short = [...document.querySelectorAll(".r_v")].filter(i => +i.value < +i.dataset.sent);
+      $("r_sum").innerHTML = short.length
+        ? `<span style="color:var(--p1)">Short: ${short.map(i => {
+            const x = I.find(it => it.id === +i.dataset.item);
+            return `${num(i.dataset.sent - i.value)} ${unit(x)} ${esc(x.item)}`;
+          }).join(", ")}. It will be logged as lost in Stock Movements.</span>`
+        : "Everything arrived as sent.";
+    }
+
+    async function saveReceive(id) {
+      const got = [...document.querySelectorAll(".r_v")].map(i => ({ item_id: +i.dataset.item, qty: num(+i.value), sent: +i.dataset.sent }));
+      if (got.some(g => !(g.qty >= 0) || g.qty > g.sent)) return toast("Received must be between 0 and what was sent");
+      const short = got.some(g => g.qty < g.sent);
+      const note = $("r_n").value.trim();
+      if (short && !note) return toast("Explain the shortage in the note");
+
+      const ok = await act(sb.rpc("receive_transfer", { p_id: id, p_received: got.map(({ item_id, qty }) => ({ item_id, qty })), p_note: note || null }),
+        short ? `${waybill(id)} received · shortage logged` : `${waybill(id)} received in full`);
+      if (!ok) return;
+      close_();
+      go("Sites & Transfers");
+    }
+
+    async function cancelTr(id) {
+      if (!confirm(`Cancel ${waybill(id)}? Use this only if the truck never left. The goods go back to the sending site.`)) return;
+      if (await act(sb.rpc("cancel_transfer", { p_id: id }), `${waybill(id)} cancelled · goods returned`)) go("Sites & Transfers");
+    }
+
+    // ----- Printable waybill -----
+    function printWaybill(id) {
+      const t = TR.find(x => x.id === id);
+      if (!t) return toast("Waybill not found");
+      const from = SITES.find(s => s.id === t.from_site) || {}, to = SITES.find(s => s.id === t.to_site) || {};
+      const rows = t.transfer_items.map(ti => {
+        const x = I.find(i => i.id === ti.item_id) || { item: "—", measure: "count" };
+        return `<tr><td>${esc(x.item)}</td><td>${+ti.qty_sent} ${unit(x)}</td>
+          <td>${ti.qty_received != null ? +ti.qty_received + " " + unit(x) : ""}</td></tr>`;
+      }).join("");
+
+      const w = window.open("", "_blank");
+      if (!w) return toast("Allow pop-ups for this page to print the waybill");
+      w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${waybill(id)}</title>
+        <style>
+          body { font: 14px/1.5 system-ui, sans-serif; color: #111; margin: 32px; }
+          h1 { margin: 0; font-size: 24px; } .no { font: 700 22px ui-monospace, Consolas, monospace; }
+          table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+          th, td { border: 1px solid #999; padding: 8px; text-align: left; }
+          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; margin-top: 16px; }
+          .sign { border-top: 1px solid #111; padding-top: 4px; margin-top: 48px; }
+        </style></head><body>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end">
+          <div><h1>ReliefSys Waybill</h1>Relief goods transfer</div>
+          <div class="no">${waybill(id)}</div>
+        </div>
+        <div class="grid">
+          <div><b>From:</b> ${esc(from.name)}<br>${esc(from.kind)} · ${esc(from.brgy || "")}</div>
+          <div><b>To:</b> ${esc(to.name)}<br>${esc(to.kind)} · ${esc(to.brgy || "")}</div>
+          <div><b>Vehicle:</b> ${esc(t.vehicle)}<br><b>Driver:</b> ${esc(t.driver)}</div>
+          <div><b>Dispatched:</b> ${new Date(t.sent_at).toLocaleString()}<br><b>By:</b> ${esc(uname(t.sent_by))}
+            <br><b>Status:</b> ${t.status}</div>
+        </div>
+        ${t.note ? `<p><b>Note:</b> ${esc(t.note)}</p>` : ""}
+        <table><tr><th>Item</th><th>Quantity sent</th><th>Quantity received</th></tr>${rows}</table>
+        ${t.receive_note ? `<p><b>Receiving note:</b> ${esc(t.receive_note)}</p>` : ""}
+        <div class="grid">
+          <div class="sign">Released by (name &amp; signature)</div>
+          <div class="sign">Received by (name &amp; signature) · date</div>
+          <div class="sign">Driver (name &amp; signature)</div>
+        </div>
+        <script>window.onload = () => window.print();<\/script>
+        </body></html>`);
+      w.document.close();
     }
 
     // ----- Sponsors & donations -----
@@ -2215,7 +2819,7 @@
         }),
         Distribution: () => D.map(d => `${d.date} ${d.ben}: ${d.items}`),
         "Stock movement": () => M.map(m =>
-          `${m.date} ${m.item}: ${m.q > 0 ? "+" : ""}${m.q} ${m.unit} · ${MOVES[m.kind] || m.kind} · ${m.reason} (${m.by})`)
+          `${m.date} ${m.item} @ ${m.site}: ${m.q > 0 ? "+" : ""}${m.q} ${m.unit} · ${MOVES[m.kind] || m.kind} · ${m.reason} (${m.by})`)
       };
       const lines = reports[type]();
 
@@ -2234,7 +2838,16 @@
        ========================================================= */
     // Stay logged in after a page refresh if the browser still has a session
     showLogin();
-    sb.auth.getSession().then(({ data }) => { if (data.session) enter(); });
+    // A saved session that sat unused longer than the idle limit is ended instead of reused
+    sb.auth.getSession().then(async ({ data }) => {
+      if (!data.session) return;
+      if (lastActive() && Date.now() - lastActive() > IDLE_MIN * 60000) {
+        await sb.auth.signOut();
+        $("err").textContent = `You were logged out after ${IDLE_MIN} minutes of inactivity.`;
+        return;
+      }
+      enter();
+    });
   </script>
 </body>
 </html>
