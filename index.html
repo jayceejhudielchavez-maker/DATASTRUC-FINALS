@@ -464,6 +464,21 @@
     .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
     .leaflet-popup-content { font: 13px/1.45 system-ui, Segoe UI, sans-serif; }
 
+    /* Truck on the way (estimated position) */
+    .truck { display: grid; justify-items: center; }
+    .truck span { font-size: 22px; line-height: 30px; filter: drop-shadow(0 1px 2px #0009); }
+    .truck b {
+      font: 700 10px/1 system-ui, sans-serif;
+      background: var(--card);
+      color: var(--tx);
+      border: 1px solid var(--bd);
+      border-radius: 6px;
+      padding: 2px 4px;
+      white-space: nowrap;
+      margin-top: -3px;
+    }
+    .truck.late b { border-color: var(--s-crit); color: var(--s-crit); }
+
     /* ===================== Guided tour ===================== */
     #tourBlock { position: fixed; inset: 0; z-index: 20; display: none; }
     #tourHole {
@@ -777,7 +792,7 @@
     const MENU = {
       "Admin":             ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sites & Transfers", "Stock Movements", "Sponsors & Donations", "Distribution History", "Reports", "Users"],
       "LGU Personnel":     ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sites & Transfers", "Sponsors & Donations", "Distribution History", "Reports"],
-      "NGO Staff":         ["Dashboard", "Priority Queue", "Inventory", "Sites & Transfers", "Sponsors & Donations", "Distribution History", "Reports"],
+      "NGO Staff":         ["Dashboard", "Beneficiaries", "Priority Queue", "Inventory", "Sites & Transfers", "Sponsors & Donations", "Distribution History", "Reports"],
       "Logistics Officer": ["Dashboard", "Inventory", "Sites & Transfers", "Stock Movements", "Sponsors & Donations", "Distribution History", "Reports"],
       "Volunteer":         ["Dashboard", "Beneficiaries", "Priority Queue"]
     };
@@ -813,6 +828,8 @@
     const staff = () => role === "Admin" || role === "LGU Personnel";     // can verify / delete
     const logi = () => role === "Admin" || role === "Logistics Officer";  // can adjust / write off stock
     const people = () => role !== "Logistics Officer";                    // can see beneficiary records
+    // The site this account is assigned to by the Admin (Admins are never locked to one)
+    const lockedSite = () => role === "Admin" ? null : (P.find(p => p.id === me) || {}).site_id || null;
     const pad2 = n => String(n).padStart(2, "0");
     const today = () => {                                                 // local date, yyyy-mm-dd
       const d = new Date();
@@ -879,8 +896,9 @@
     // Priority Queue: best vulnerability tier first, then more high-priority needs first
     // (a pregnant PWD before someone only pregnant), then household income (poorest first),
     // then registration order. Only ID-verified people enter, and only once their waiting period is over.
-    const queue = () => B
-      .filter(b => b.ver && canServe(b))
+    // With a site: that site's families plus families with no site yet. Without: everyone (dashboard totals).
+    const queue = site => B
+      .filter(b => b.ver && canServe(b) && (site == null || !b.site || b.site === site))
       .sort((a, b) => tier(a) - tier(b) || vulns(b) - vulns(a) || a.inc - b.inc || a.id - b.id);
 
     const pend = () => B.filter(b => !b.ver);
@@ -903,16 +921,16 @@
 
     async function load() {
       const [pr, ben, sp, it, lots, don, dist, mov, st, trs, cfg] = await Promise.all([
-        sb.from("profiles").select("id, username, name, role, status").order("created_at"),
+        sb.from("profiles").select("id, username, name, role, status, site_id").order("created_at"),
         sb.from("beneficiaries")
-          .select("id, name, brgy, contact, dob, fam, cats, inc, id_type, id_last4, verified, served, last_served, claim_code, registered_by, verified_by")
+          .select("id, name, brgy, dob, fam, cats, inc, id_type, id_last4, verified, served, last_served, site_id, registered_by, verified_by")
           .order("id"),
         sb.from("sponsors").select("*").order("id"),
         sb.from("item_totals").select("*").order("id"),
         sb.from("stock_lots").select("item_id, qty, exp, site_id, transfer_id").gt("qty", 0),
         sb.from("donations").select("date, sponsor_id, item_id, received_as, qty, exp").order("id", { ascending: false }),
         sb.from("distributions")
-          .select("id, date, beneficiary_id, served_by, served_role, distribution_items(item_id, qty)")
+          .select("id, date, beneficiary_id, served_by, served_role, skip_reason, approved_by, distribution_items(item_id, qty)")
           .order("id", { ascending: false }),
         sb.from("stock_movements").select("at, item_id, kind, qty, reason, by_user, site_id").order("id", { ascending: false }),
         sb.from("sites").select("*").order("id"),
@@ -925,11 +943,17 @@
       P = pr.data;
       if (cfg.data) WAIT = cfg.data.serve_wait_days;
       B = ben.data.map(b => ({
-        id: b.id, name: b.name, brgy: b.brgy, contact: b.contact, dob: b.dob, fam: b.fam, cats: b.cats,
-        inc: b.inc, idt: b.id_type, idn: b.id_last4, ver: b.verified, done: b.served, last: b.last_served || "", code: b.claim_code || "",
+        id: b.id, name: b.name, brgy: b.brgy, dob: b.dob, fam: b.fam, cats: b.cats,
+        inc: b.inc, idt: b.id_type, idn: b.id_last4, ver: b.verified, done: b.served, last: b.last_served || "", code: "", site: b.site_id,
         byId: b.registered_by, by: uname(b.registered_by), verBy: b.verified_by ? uname(b.verified_by) : ""
       }));
       B.forEach(b => b.flags = flagsOf(b));
+      // Claim codes come only to LGU and Admin, who print the cards. Contact numbers never come to the page.
+      if (staff()) {
+        const cc = await sb.rpc("claim_codes");
+        if (cc.error) { toast(errMsg(cc.error)); return false; }
+        cc.data.forEach(r => { const b = B.find(x => x.id === r.id); if (b) b.code = r.claim_code || ""; });
+      }
       S = sp.data;
       I = it.data.map(x => ({
         id: x.id, item: x.name, cat: x.cat, measure: x.measure, per: +x.per, perish: x.perish,
@@ -941,6 +965,7 @@
       SITES = st.data;
       TR = trs.data;
       if (!SITES.some(s => s.id === serveSite)) serveSite = (SITES.find(s => s.kind !== "Warehouse") || SITES[0] || {}).id;
+      if (lockedSite()) serveSite = lockedSite();   // staff assigned to a site always work there
 
       const itemName = id => (I.find(x => x.id === id) || {}).item || "—";
       DON = don.data.map(d => ({
@@ -954,7 +979,8 @@
           const x = I.find(i => i.id === di.item_id);
           return `${itemName(di.item_id)} ${+di.qty} ${x ? unit(x) : ""}`;
         }).join(", "),
-        by: `${uname(d.served_by)} · ${d.served_role || ""}`
+        by: `${uname(d.served_by)} · ${d.served_role || ""}`,
+        skip: d.skip_reason || "", okBy: d.approved_by && d.approved_by !== d.served_by ? uname(d.approved_by) : ""
       }));
       M = mov.data.map(m => ({
         date: m.at.slice(0, 10), item: itemName(m.item_id), kind: m.kind, q: +m.qty,
@@ -974,7 +1000,7 @@
         R = req.data;
         A = P.map(p => {
           const d = det.data.find(x => x.id === p.id) || {};
-          return { id: p.id, u: p.username, name: p.name, role: p.role, st: p.status,
+          return { id: p.id, u: p.username, name: p.name, role: p.role, st: p.status, site: p.site_id,
                    idt: d.id_type, idn: d.id_no || "", qr: d.via_qr };
         });
       }
@@ -1598,26 +1624,26 @@
         x: "Every warehouse and evacuation center on one map. <b>Green</b> can serve 20+ families, <b>gold</b> is running low, <b>red</b> is out. Tap a pin for details." },
       { t: "Trends", page: "Dashboard", sel: "[data-tour=charts]", roles: ["Admin", "LGU Personnel", "NGO Staff", "Logistics Officer"],
         x: "Families served per day, and which priority groups received relief. Hover a bar for its number, or open <b>Show as table</b>." },
-      { t: "Register a family", page: "Beneficiaries", sel: "[data-tour=register]", roles: ["Admin", "LGU Personnel", "Volunteer"],
+      { t: "Register a family", page: "Beneficiaries", sel: "[data-tour=register]", roles: ["Admin", "LGU Personnel", "NGO Staff", "Volunteer"],
         x: "Enter the person's details, tick <b>every</b> category that applies, then household income and ID. Senior citizen is set from the birthdate. No ID? Choose the barangay certificate so poor families aren't left out." },
       { t: "Verify the ID", page: "Beneficiaries", sel: ['[onclick^="ver("]', "#view .card.tw"], roles: STAFF_ROLES, key: true,
         x: "A <b>different</b> LGU or Admin checks the ID and the proof for each category. Only verified families enter the queue, so nobody can register themselves into priority." },
       { t: "Print claim cards", page: "Beneficiaries", sel: "[data-tour=cards]", roles: STAFF_ROLES,
         x: "Give every verified family a QR claim card. Lost card? Press <b>New code</b> on their row; the old card stops working." },
       { t: "Who goes first", page: "Priority Queue", sel: [".q.first", "#view"], key: true, demo: true,
-        x: "Order is fixed by need: vulnerability group, then how many high-priority needs, then the poorest household, then who registered first. Donations and job titles never move anyone up." },
+        x: "Each site has its own queue. Order is fixed by need: vulnerability group, then how many high-priority needs, then the poorest household, then who registered first. Donations and job titles never move anyone up." },
       { t: "Scan the claim card", page: "Priority Queue", sel: "[data-tour=scan]", key: true,
         x: "At the table, scan the family's card. If they're first, serving opens right away. If not, it tells you who is ahead, so priority still counts." },
       { t: "Serve and confirm", page: "Priority Queue", sel: [".q.first .btn", "[data-tour=scan]"], key: true,
         x: "Press <b>Serve Next</b>, choose the site you're at, check the goods list and confirm. Only that site's stock is used, and it's saved instantly for every device." },
       { t: "One pack per round", page: "Priority Queue", sel: "[data-tour=round]",
         x: () => `After a pack, a family waits <b>${WAIT} day${WAIT > 1 ? "s" : ""}</b> before they return to the queue. The database blocks repeat claims at every site, and warns you when someone from the same household already got relief.` },
-      { t: "Record donations", page: "Sponsors & Donations", sel: "[data-tour=donate]",
+      { t: "Record donations", page: "Sponsors & Donations", sel: "[data-tour=donate]", roles: ["Admin", "Logistics Officer"],
         x: "Add the sponsor, then the donation: bulk or packs and the unit (e.g. 100 bottles × 500 mL). It's converted to the item's base unit. Perishables need an expiry date and go out soonest-expiring first." },
       { t: "Manage the stock", page: "Inventory", sel: ['[onclick^="addAdj("]', "#view .card.tw"], roles: ["Admin", "Logistics Officer"],
         x: "<b>Adjust</b> for damaged, lost or miscounted goods, with a reason that's logged with your name. <b>Sort</b> turns sacks of mixed donations into the items families receive." },
       { t: "Map of sites", page: "Sites & Transfers", sel: "[data-tour=map]",
-        x: "Where everything is. Admin or Logistics press <b>Set location</b> to place a new site on the map." },
+        x: "Where everything is. 🚚 shows each truck on the way at its <b>estimated</b> position, with an arrival time; it turns red when overdue. Admin or Logistics press <b>Set location</b> to place a new site." },
       { t: "Send goods by truck", page: "Sites & Transfers", sel: "[data-tour=dispatch]", roles: ["Admin", "Logistics Officer"], key: true,
         x: "Dispatch from one site to another and print the <b>waybill</b> for the driver. The receiving site presses <b>Receive</b> and counts what came; any shortage is logged automatically." },
       { t: "Reports", page: "Reports", sel: "[data-tour=reports]",
@@ -1763,6 +1789,7 @@
                 <span><i style="background:var(--s-ok)"></i>Stocked (20+)</span>
                 <span><i style="background:var(--s-low)"></i>Running low (1–19)</span>
                 <span><i style="background:var(--s-crit)"></i>Out of stock</span>
+                ${TR.some(t => t.status === "In transit") ? `<span>🚚 On the way (estimated)</span>` : ""}
                 ${SITES.some(s => s.lat == null) ? `<span>· ${SITES.filter(s => s.lat == null).length} site(s) not placed yet</span>` : ""}
               </div>
             </div>` : ""}
@@ -1785,6 +1812,7 @@
             ? (!b.ver ? `<button class="btn s" onclick="ver(${b.id})">Verify ID</button> `
                 : `<button class="btn o s" onclick="printCards([${b.id}])" title="Print this family's QR claim card">Card</button>
                    <button class="btn o s" onclick="reissue(${b.id})" title="Lost card: make a new code. The old card stops working">New code</button> `)
+              + `<button class="btn o s" onclick="moveSite(${b.id})" title="Change where this family claims relief">Site</button> `
               + `<button class="btn o s" onclick="delB(${b.id})">Delete</button>`
             : "";
 
@@ -1792,11 +1820,12 @@
             <tr>
               <td>${esc(b.name)}</td>
               <td>${esc(b.brgy)}</td>
+              <td>${b.site ? esc(siteName(b.site)) : `<span style="color:var(--mu)">No site yet</span>`}</td>
               <td>${ageOf(b.dob)}</td>
               <td>${b.fam}</td>
-              <td>${cats(b).join("<br>")}</td>
+              <td>${cats(b).map(esc).join("<br>")}</td>
               <td>${INC[b.inc]}</td>
-              <td>${b.idt.split(" ")[0]} ${mask(b.idn)}</td>
+              <td>${esc(b.idt.split(" ")[0])} ${mask(b.idn)}</td>
               <td>${tag(b)}</td>
               <td>${status}</td>
               <td style="color:var(--mu)">${esc(b.by)}${b.verBy ? " → " + esc(b.verBy) : ""}</td>
@@ -1816,7 +1845,7 @@
           <div class="card tw">
             <table>
               <tr>
-                <th>Name</th><th>Barangay</th><th>Age</th><th>Family</th><th>Category</th>
+                <th>Name</th><th>Barangay</th><th>Claims at</th><th>Age</th><th>Family</th><th>Category</th>
                 <th>Household income</th><th>ID</th><th>Priority</th><th>Status</th><th>Registered → verified by</th><th></th>
               </tr>
               ${rows}
@@ -1828,20 +1857,34 @@
             Senior citizen is set from the birthdate. People with unverified IDs wait outside the queue until
             an LGU or Admin, other than the person who registered them, checks the ID and each category's proof.
             Hover over a warning to read it.
-            ${role === "Volunteer" ? "Volunteers can register but not verify or delete." : ""}
+            ${staff() ? "" : `${role === "Volunteer" ? "Volunteers" : "NGO Staff"} can register but not verify, delete or print claim cards.
+              Contact numbers are hidden for privacy.`}
           </div>`;
       },
 
       "Priority Queue"() {
-        const q = queue();
+        const q = queue(serveSite);
         const p = pend();
+
+        // Each site has its own queue. Staff assigned to a site see only theirs.
+        const lock = lockedSite();
+        const sitePick = `
+          <div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <b>Queue at</b>
+            <select style="width:auto;min-width:220px" ${lock ? "disabled" : ""}
+              onchange="serveSite = +this.value; go('Priority Queue')">
+              ${SITES.map(s => `<option value="${s.id}" ${s.id === serveSite ? "selected" : ""}>${esc(s.name)} · ${s.kind}</option>`).join("")}
+            </select>
+            <span style="color:var(--mu)">${lock ? "You're assigned to this site by the Admin."
+              : "Families of this site, plus families with no site yet (they join the first site that serves them)."}</span>
+          </div>`;
 
         const cards = q.map((b, i) => `
           <div class="q ${i ? "" : "first"}" id="q${b.id}" style="animation-delay:${i * 60}ms">
             <div class="n">${i + 1}</div>
             <div class="g">
-              <b>${esc(b.name)}</b> · ${esc(b.brgy)}<br>
-              <span style="color:var(--mu)">${cats(b).join(" + ")} · ${INC[b.inc]} · family of ${b.fam}</span>
+              <b>${esc(b.name)}</b> · ${esc(b.brgy)}${b.site ? "" : ` <span class="tag t0" title="Joins the first site that serves them">No site yet</span>`}<br>
+              <span style="color:var(--mu)">${cats(b).map(esc).join(" + ")} · ${INC[b.inc]} · family of ${b.fam}</span>
             </div>
             ${tag(b)}
             ${i === 0 ? `<button class="btn a s" onclick="serve(${b.id})">Serve Next</button>` : ""}
@@ -1854,7 +1897,7 @@
           </div>` : "";
 
         // Families served recently, and when they come back
-        const resting = B.filter(b => b.ver && !canServe(b));
+        const resting = B.filter(b => b.ver && !canServe(b) && (!b.site || b.site === serveSite));
         const round = `
           <div class="card" data-tour="round" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
             <span>Families can receive relief again <b>${WAIT} day${WAIT > 1 ? "s" : ""}</b> after their last pack.
@@ -1867,8 +1910,9 @@
             <span style="color:var(--mu)">Vulnerability group, then most high-priority needs, then poorest household first, then registration order.</span>
             <button class="btn a" data-tour="scan" onclick="scanClaim()">Scan claim card</button>
           </div>
+          ${sitePick}
           ${round}
-          ${cards || `<div class='card'>Queue is empty. Everyone verified has received relief this round.
+          ${cards || `<div class='card'>Queue at ${esc(siteName(serveSite))} is empty. Everyone verified here has received relief this round.
             ${resting.length ? `Next family is back on <b>${niceDate(resting.map(nextServe).sort()[0])}</b>.` : ""}</div>`}
           ${waiting}`;
       },
@@ -1917,7 +1961,7 @@
         return `
           <div class="top">
             <span style="color:var(--mu)">All amounts are in each item's base unit. Perishables go out soonest-expiring first.</span>
-            ${role !== "Volunteer" ? '<button class="btn a" onclick="addItem()">+ Add relief item</button>' : ""}
+            ${logi() ? '<button class="btn a" onclick="addItem()">+ Add relief item</button>' : ""}
           </div>
           ${writeOff}
 
@@ -1946,10 +1990,11 @@
 
         return `
           <div class="top">
-            <span style="color:var(--mu)">Sources of relief goods. Donating does not affect queue order.</span>
+            <span style="color:var(--mu)">Sources of relief goods. Donating does not affect queue order.
+              ${logi() ? "" : "Only Logistics or Admin can record donations into stock."}</span>
             <div>
               <button class="btn o" onclick="addSp()">+ Add sponsor</button>
-              <button class="btn a" data-tour="donate" onclick="addDon()">+ Record donation</button>
+              ${logi() ? `<button class="btn a" data-tour="donate" onclick="addDon()">+ Record donation</button>` : ""}
             </div>
           </div>
 
@@ -1997,10 +2042,12 @@
               <td style="white-space:normal">${items}</td>
               <td>${esc(t.vehicle)}<br><span style="color:var(--mu);font-size:12px">${esc(t.driver)}</span></td>
               <td>${status(t)}${t.received_at && t.status === "Delivered"
-                ? `<br><span style="color:var(--mu);font-size:12px">${t.received_at.slice(0, 10)} · ${esc(uname(t.received_by))}</span>` : ""}</td>
+                ? `<br><span style="color:var(--mu);font-size:12px">${t.received_at.slice(0, 10)} · ${esc(uname(t.received_by))}</span>` : ""}
+                ${canAct ? (p => `<br><span class="eta" data-tr="${t.id}" style="font-size:12px;color:${p && p.late ? "var(--s-crit)" : "var(--mu)"}">${p ? etaText(p)
+                  : "ETA unknown · put both sites on the map"}</span>`)(trip(t)) : ""}</td>
               <td>
                 <button class="btn o s" onclick="printWaybill(${t.id})">Waybill</button>
-                ${canAct && (logi() || role === "LGU Personnel") ? `<button class="btn s" onclick="receiveTr(${t.id})">Receive</button>` : ""}
+                ${canAct && logi() ? `<button class="btn s" onclick="receiveTr(${t.id})">Receive</button>` : ""}
                 ${canAct && logi() ? `<button class="btn o s" onclick="cancelTr(${t.id})">Cancel</button>` : ""}
               </td>
             </tr>`;
@@ -2023,6 +2070,7 @@
               <span><i style="background:var(--s-ok)"></i>Stocked (20+ families)</span>
               <span><i style="background:var(--s-low)"></i>Running low (1–19)</span>
               <span><i style="background:var(--s-crit)"></i>Out of stock</span>
+              <span>🚚 Truck on the way (estimated position, ~${AVG_KMH} km/h)</span>
             </div>
             ${(() => {
               const missing = SITES.filter(s => s.lat == null || s.lng == null);
@@ -2047,9 +2095,10 @@
             </table>
           </div>
           <div class="note">
-            Dispatching takes the goods from the sending site, soonest-expiring first. When they arrive, the receiving
-            site enters what actually came; any shortage is logged in Stock Movements as lost.
+            Dispatching takes the goods from the sending site, soonest-expiring first. When they arrive, a Logistics
+            Officer at the receiving site enters what actually came; any shortage is logged in Stock Movements as lost.
             New donations go to the Central Warehouse.
+            ${logi() ? "" : "Only Logistics or Admin can change stock, sites and transfers. You can see everything here."}
           </div>`;
       },
 
@@ -2081,13 +2130,18 @@
 
       "Distribution History"() {
         const rows = D
-          .map(d => `<tr><td>${d.date}</td><td>${esc(d.ben)}</td><td>${esc(d.items)}</td><td>${d.by}</td></tr>`)
+          .map(d => `<tr><td>${d.date}</td><td>${esc(d.ben)}</td><td>${esc(d.items)}</td><td>${esc(d.by)}</td>
+            <td style="white-space:normal">${d.skip ? `<span class="tag t2">Out of order</span> ${esc(d.skip)}
+              ${d.okBy ? `<br><span style="color:var(--mu);font-size:12px">Approved by ${esc(d.okBy)}</span>` : ""}` : ""}</td></tr>`)
           .join("");
+        const skips = D.filter(d => d.skip).length;
 
         return `
+          ${skips ? `<div class="card warn"><b>${skips} distribution(s) served out of order.</b>
+            <span style="color:var(--mu)">Each one shows the reason and who approved it.</span></div>` : ""}
           <div class="card tw">
             <table>
-              <tr><th>Date</th><th>Beneficiary</th><th>Goods given</th><th>Processed by</th></tr>
+              <tr><th>Date</th><th>Beneficiary</th><th>Goods given</th><th>Processed by</th><th>Out of order</th></tr>
               ${rows}
             </table>
           </div>`;
@@ -2115,6 +2169,12 @@
               <td>${esc(a.name)}</td>
               <td>${a.u}</td>
               <td>${a.role}</td>
+              <td>${a.role === "Admin" ? `<span style="color:var(--mu)">All sites</span>` : `
+                <select style="width:auto;padding:5px" onchange="setUserSite('${a.id}', this.value)"
+                  title="Assigned staff can only serve at this site">
+                  <option value="">Any site</option>
+                  ${SITES.map(s => `<option value="${s.id}" ${s.id === a.site ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
+                </select>`}</td>
               <td>${id}${qrTag}</td>
               <td>${a.st}</td>
               <td>${userActions(a)}</td>
@@ -2150,7 +2210,7 @@
           ${pending.length ? `<div class="card warn"><b>${pending.length} account(s) waiting for approval</b></div>` : ""}
           <div class="card tw">
             <table>
-              <tr><th>Name</th><th>Username</th><th>Role</th><th>ID submitted</th><th>Status</th><th></th></tr>
+              <tr><th>Name</th><th>Username</th><th>Role</th><th>Works at</th><th>ID submitted</th><th>Status</th><th></th></tr>
               ${rows}
             </table>
           </div>`;
@@ -2222,6 +2282,14 @@
       if (!confirm("Dismiss this request without resetting the password?")) return;
       if (await act(sb.from("reset_requests").update({ status: "Dismissed", handled_by: me, handled_at: new Date().toISOString() })
         .eq("id", id), "Request dismissed")) go("Users");
+    }
+
+    // Admin: tie a staff account to one site (they then serve only there), or leave it free
+    async function setUserSite(id, site) {
+      site = +site || null;
+      const a = A.find(x => x.id === id);
+      if (await act(sb.from("profiles").update({ site_id: site }).eq("id", id),
+        `${a.name} ${site ? "now works at " + siteName(site) : "can now work at any site"}`)) go("Users");
     }
 
     async function setSt(id, status) {
@@ -2313,8 +2381,17 @@
           </div>
         </div>
 
-        <label>Address / Barangay</label>
-        <input id="f2">
+        <div class="two">
+          <div><label>Address / Barangay</label><input id="f2"></div>
+          <div>
+            <label>Claims relief at</label>
+            <select id="f10">
+              <option value="">No site yet (first site that serves them)</option>
+              ${SITES.filter(s => s.kind !== "Warehouse").map(s =>
+                `<option value="${s.id}" ${s.id === (lockedSite() || serveSite) ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
+            </select>
+          </div>
+        </div>
 
         <div class="two">
           <div><label>Contact number (optional)</label><input id="f4"></div>
@@ -2385,6 +2462,7 @@
         inc: +$("f7").value,
         id_type: $("f8").value,
         id_no: idNumber,
+        site_id: +$("f10").value || null,
         registered_by: me
       };
       const flagged = flagsOf({ ...b, idt: b.id_type }).length;
@@ -2397,6 +2475,31 @@
       go("Beneficiaries");
     }
 
+    // LGU / Admin: change where a family claims relief (e.g. they moved to another evacuation center)
+    function moveSite(id) {
+      const b = B.find(x => x.id === id);
+      modal(`
+        <h3>Where ${esc(b.name)} claims relief</h3>
+        <p style="color:var(--mu)">Now: ${b.site ? esc(siteName(b.site)) : "no site yet"}. They join that site's queue.</p>
+        <label>Site</label>
+        <select id="ms">
+          <option value="">No site yet (first site that serves them)</option>
+          ${SITES.filter(s => s.kind !== "Warehouse").map(s => `<option value="${s.id}" ${s.id === b.site ? "selected" : ""}>${esc(s.name)} · ${s.kind}</option>`).join("")}
+        </select>
+        <div class="actions">
+          <button class="btn a" onclick="saveMove(${id})">Save</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+    }
+
+    async function saveMove(id) {
+      const site = +$("ms").value || null;
+      if (await act(sb.rpc("set_ben_site", { ben_id: id, p_site: site }), site ? `Moved to ${siteName(site)}` : "Site cleared")) {
+        close_();
+        go("Beneficiaries");
+      }
+    }
+
     async function delB(id) {
       if (!confirm("Delete " + B.find(b => b.id === id).name + "? This cannot be undone.")) return;
 
@@ -2406,15 +2509,48 @@
     // ----- Distribution -----
     // Other people who look like the same household (same contact number, or same surname in the same
     // barangay) and received relief this round. Only a warning: the distributor asks and decides.
-    function household(b) {
-      const phone = s => String(s || "").replace(/\D/g, "").slice(-10);
+    // The contact numbers stay in the database: it only says which families share this one's number.
+    async function household(b) {
       const surname = s => String(s).trim().toLowerCase().split(/\s+/).pop();
+      const { data } = await sb.rpc("same_contact", { ben_id: b.id });
+      const phone = new Set(data || []);
       return B.filter(o => o.id !== b.id && o.last && !canServe(o)).map(o => {
-        const why = phone(b.contact).length >= 7 && phone(o.contact) === phone(b.contact) ? "same contact number"
+        const why = phone.has(o.id) ? "same contact number"
           : b.brgy !== "—" && o.brgy.toLowerCase() === b.brgy.toLowerCase() && surname(o.name) === surname(b.name) ? "same surname and barangay"
           : "";
         return why ? { ...o, why } : null;
       }).filter(Boolean);
+    }
+
+    // Shows the household warning in the serve screen once the database has answered
+    async function showKin(b) {
+      const kin = await household(b);
+      if (!$("kin") || !kin.length) return;
+      $("kin").innerHTML = `<div class="card warn" style="margin:0 0 10px">
+        <b>Possibly the same household already received relief</b><br>
+        ${kin.map(o => `${esc(o.name)} · ${esc(o.brgy)} · served ${niceDate(o.last)}
+          <span style="color:var(--mu)">(${o.why})</span>`).join("<br>")}<br>
+        <span style="color:var(--mu);font-size:12px">Ask if they live together. If they do, skip this family until ${niceDate(nextServe(kin[0]))}.</span>
+      </div>`;
+    }
+
+    // ----- Serving out of order -----
+    // Volunteers and NGO Staff need an LGU or Admin to approve, in person, on this device.
+    // The approver signs in on a separate, temporary connection, so the person serving stays logged in.
+    const approver = supabase.createClient(SUPABASE_URL, SUPABASE_KEY,
+      { auth: { persistSession: false, autoRefreshToken: false, storageKey: "reliefsys-approver" } });
+
+    async function getApproval(benId, reason) {
+      const u = $("ap_u").value.trim().toLowerCase(), pw = $("ap_p").value;
+      if (!u || !pw) throw new Error("The LGU or Admin approving must enter their username and password");
+      const { error: e1 } = await approver.auth.signInWithPassword({ email: u + EMAIL_DOMAIN, password: pw });
+      if (e1) throw new Error("Approval failed: wrong username or password");
+      try {
+        const { error: e2 } = await approver.rpc("approve_skip", { ben_id: benId, p_reason: reason });
+        if (e2) throw new Error(errMsg(e2));
+      } finally {
+        await approver.auth.signOut({ scope: "local" });   // ends only this temporary sign-in
+      }
     }
 
     // Admin: how many days before a family can receive again
@@ -2441,6 +2577,8 @@
 
     function serve(id, site) {
       if (site) serveSite = +site;
+      // Changing the site redraws this screen: keep what was already typed
+      const typed = ["sk_r", "ap_u"].map(f => $(f) ? $(f).value : "");
       const b = B.find(x => x.id == id);
       const here = x => remAt(x, serveSite);   // only the stock at the site where you're serving
       const sitePick = SITES.map(s => `<option value="${s.id}" ${s.id === serveSite ? "selected" : ""}>${esc(s.name)} · ${s.kind}</option>`).join("");
@@ -2456,7 +2594,28 @@
         </tr>`;
       }).join("");
       const skipped = given().filter(x => here(x) < share(x, b.fam));
-      const kin = household(b);
+
+      // Not first in line: say who is ahead, and ask for a reason (and an LGU/Admin approval if needed)
+      // Measured against the queue of the site being served at; a family of another site is never first here
+      const q = queue(serveSite), pos = q.findIndex(x => x.id === b.id);
+      const ahead = pos > 0 ? q.slice(0, pos) : pos < 0 ? q : [];
+      const skipping = pos !== 0;   // the database counts this as out of order too
+      const needOk = skipping && !staff();
+      const outOfOrder = skipping ? `
+        <div class="card warn" style="margin:0 0 10px">
+          <b>${pos < 0 ? `Out of order: ${esc(b.name)} belongs to ${esc(siteName(b.site))}.` : `Out of order: #${pos + 1} in the queue here.`}</b>
+          ${ahead.length ? `${ahead.length} ${ahead.length > 1 ? "families" : "family"} ${pos < 0 ? "of this site" : "with higher priority"}
+            ${ahead.length > 1 ? "are" : "is"} waiting: ${ahead.slice(0, 3).map(x => esc(x.name)).join(", ")}${ahead.length > 3 ? "…" : ""}.` : ""}
+          <label>Reason for serving this family now (saved with the distribution)</label>
+          <input id="sk_r" placeholder="e.g. Higher-priority families are not at this site today">
+          ${needOk ? `
+            <label>Approval: an LGU or Admin enters their login here</label>
+            <div class="two">
+              <input id="ap_u" placeholder="LGU / Admin username" autocomplete="off">
+              <div class="pw"><input id="ap_p" type="password" placeholder="Password" autocomplete="off">${EYE}</div>
+            </div>
+            <span style="color:var(--mu);font-size:12px">You stay logged in. Their login is used only to approve this one family.</span>` : ""}
+        </div>` : "";
 
       modal(`
         <h3>Distribute relief goods</h3>
@@ -2464,15 +2623,11 @@
           <b>${esc(b.name)}</b> ${tag(b)}<br>
           <span style="color:var(--mu)">${esc(b.brgy)} · ${b.idt.split(" ")[0]} ${mask(b.idn)} · family of ${b.fam}</span>
         </p>
-        ${kin.length ? `<div class="card warn" style="margin:0 0 10px">
-          <b>Possibly the same household already received relief</b><br>
-          ${kin.map(o => `${esc(o.name)} · ${esc(o.brgy)} · served ${niceDate(o.last)}
-            <span style="color:var(--mu)">(${o.why})</span>`).join("<br>")}<br>
-          <span style="color:var(--mu);font-size:12px">Ask if they live together. If they do, skip this family until ${niceDate(nextServe(kin[0]))}.</span>
-        </div>` : ""}
+        ${outOfOrder}
+        <div id="kin"></div>
 
-        <label>Serving at</label>
-        <select onchange="serve(${id}, this.value)">${sitePick}</select>
+        <label>Serving at${lockedSite() ? " (your assigned site)" : ""}</label>
+        <select onchange="serve(${id}, this.value)" ${lockedSite() ? "disabled" : ""}>${sitePick}</select>
 
         <table>${goods || `<tr><td style="color:var(--mu)">No items are set to be given out.</td></tr>`}</table>
         ${skipped.length ? `<div class="note">Out of stock for this family: <b>${skipped.map(x => esc(x.item)).join(", ")}</b>.
@@ -2482,6 +2637,8 @@
           <button class="btn a" onclick="confirmServe(${id})">Confirm distribution</button>
           <button class="btn o" onclick="close_()">Cancel</button>
         </div>`);
+      ["sk_r", "ap_u"].forEach((f, i) => { if ($(f) && typed[i]) $(f).value = typed[i]; });
+      showKin(b);
     }
 
     async function confirmServe(id) {
@@ -2492,11 +2649,18 @@
       // The database takes the stock soonest-expiring first, skips items that ran short,
       // marks the person served and saves the history in one step, so two people
       // serving at once can't give out the same stock
+      // Out of order: a reason always; an LGU/Admin approval when a Volunteer or NGO Staff serves
+      const reason = $("sk_r") ? $("sk_r").value.trim() : "";
+      if ($("sk_r") && !reason) return toast("Give a reason for serving this family ahead of others");
+
       if (busy) return;
       busy = true;
       let res;
-      try { res = await sb.rpc("serve_beneficiary_at", { ben_id: id, p_site: serveSite }); }
-      catch (e) { res = { error: { message: "Can't reach the database. Check your internet connection" } }; }
+      try {
+        if ($("ap_u")) await getApproval(id, reason);
+        res = await sb.rpc("serve_beneficiary_at", { ben_id: id, p_site: serveSite, p_reason: reason || null });
+      }
+      catch (e) { res = { error: { message: e.message && !/fetch/i.test(e.message) ? e.message : "Can't reach the database. Check your internet connection" } }; }
       finally { busy = false; }
       const { data: skipped, error } = res;
       if (error) {
@@ -2940,7 +3104,8 @@
           <div><b>To:</b> ${esc(to.name)}<br>${esc(to.kind)} · ${esc(to.brgy || "")}</div>
           <div><b>Vehicle:</b> ${esc(t.vehicle)}<br><b>Driver:</b> ${esc(t.driver)}</div>
           <div><b>Dispatched:</b> ${new Date(t.sent_at).toLocaleString()}<br><b>By:</b> ${esc(uname(t.sent_by))}
-            <br><b>Status:</b> ${t.status}</div>
+            <br><b>Status:</b> ${t.status}
+            ${t.status === "In transit" && trip(t) ? `<br><b>Estimated arrival:</b> ${clock(trip(t).eta)}` : ""}</div>
         </div>
         ${t.note ? `<p><b>Note:</b> ${esc(t.note)}</p>` : ""}
         <table><tr><th>Item</th><th>Quantity sent</th><th>Quantity received</th></tr>${rows}</table>
@@ -3198,6 +3363,7 @@
               <div class="nm">${esc(b.name)}</div>
               <div>${esc(b.brgy)}</div>
               <div>Family of ${b.fam}</div>
+              ${b.site ? `<div>Claim at: <b>${esc(siteName(b.site))}</b></div>` : ""}
               <div class="cd">${fmtCode(b.code)}</div>
             </div>
           </div>
@@ -3265,27 +3431,25 @@
 
     const claimErr = m => { if ($("cerr")) $("cerr").textContent = m; };
 
-    function claimFound(text) {
+    async function claimFound(text) {
       stopCam();
       const code = String(text).trim().toUpperCase().replace(CLAIM, "").replace(/[^A-Z0-9]/g, "");
       if (!code) return claimErr("Enter the code printed on the card.");
-      const b = B.find(x => x.code === code);
+      // Only LGU and Admin have the codes on the page; everyone else asks the database which family it is
+      let b = B.find(x => x.code && x.code === code);
+      if (!b) {
+        claimErr("Looking up the card…");
+        const { data, error } = await sb.rpc("find_claim", { p_code: code });
+        if (error) return claimErr(errMsg(error));
+        b = data ? B.find(x => x.id === data) : null;
+        claimErr("");
+      }
       if (!b)           return claimErr("No family has this card. It may be an old card that was replaced, or not a ReliefSys card.");
       if (!b.ver)       return claimErr(`${b.name} isn't verified yet. An LGU or Admin must check their ID first.`);
       if (!canServe(b)) return claimErr(`${b.name} already received relief on ${niceDate(b.last)}. They can receive again from ${niceDate(nextServe(b))}.`);
 
-      // First in line: serve right away. Otherwise say who is ahead, so priority still counts.
-      const pos = queue().findIndex(x => x.id === b.id);
-      if (pos <= 0) return serve(b.id);
-      modal(`
-        <h3>${esc(b.name)} is #${pos + 1} in the queue</h3>
-        <p>${pos} ${pos > 1 ? "families" : "family"} with higher priority ${pos > 1 ? "are" : "is"} ahead:
-          <b>${queue().slice(0, Math.min(pos, 3)).map(x => esc(x.name)).join(", ")}${pos > 3 ? "…" : ""}</b>.</p>
-        <div class="note">Serve them first if they are here. Serve ${esc(b.name)} now only if they aren't.</div>
-        <div class="actions">
-          <button class="btn a" onclick="serve(${b.id})">Serve ${esc(b.name)} now</button>
-          <button class="btn o" onclick="close_()">Back to queue</button>
-        </div>`);
+      // The serve screen says who is ahead and asks for a reason (and approval) if they aren't first
+      serve(b.id);
     }
 
     // ----- Map of sites -----
@@ -3311,6 +3475,70 @@
       const fam = given().filter(x => x.basis === "family"), use = fam.length ? fam : given();
       return use.length ? Math.min(...use.map(x => Math.floor(remAt(x, s.id) / share(x, 1)))) : 0;
     }
+
+    // ----- Trucks on the way (estimated position, no GPS) -----
+    // How far along the line from sender to receiver the truck should be by now,
+    // worked out from the dispatch time, the distance and an average speed.
+    const AVG_KMH = 30;        // typical relief truck on town and provincial roads, short stops included
+    const ROAD_FACTOR = 1.3;   // roads are longer than a straight line
+
+    function km(a, b) {        // straight-line distance between two [lat, lng] points
+      const R = 6371, rad = Math.PI / 180, dLa = (b[0] - a[0]) * rad, dLo = (b[1] - a[1]) * rad;
+      const h = Math.sin(dLa / 2) ** 2 + Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(dLo / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(h));
+    }
+    const siteLL = id => { const s = SITES.find(x => x.id === id); return s && s.lat != null && s.lng != null ? [+s.lat, +s.lng] : null; };
+
+    // null when either site isn't on the map yet
+    function trip(t) {
+      const a = siteLL(t.from_site), b = siteLL(t.to_site);
+      if (!a || !b) return null;
+      const mins = Math.max(5, km(a, b) * ROAD_FACTOR / AVG_KMH * 60);
+      const start = new Date(t.sent_at).getTime(), eta = start + mins * 60000;
+      const f = Math.min(1, Math.max(0, (Date.now() - start) / (eta - start)));
+      return { a, b, eta, f, late: Date.now() > eta, pos: [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f] };
+    }
+
+    const clock = ms => new Date(ms).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" });
+    const etaText = p => p.late
+      ? `Due ${clock(p.eta)} · overdue by ${Math.round((Date.now() - p.eta) / 60000)} min`
+      : `ETA ~${clock(p.eta)} · ${Math.round(p.f * 100)}% of the way`;
+
+    function truckIcon(t, p, mini) {
+      return L.divIcon({ className: "truck" + (p.late ? " late" : ""), iconSize: [30, 30], iconAnchor: [15, 15],
+        html: `<span>🚚</span>${mini ? "" : `<b>${waybill(t.id)}</b>`}` });
+    }
+
+    function truckPopup(t) {
+      const p = trip(t);
+      return `<b>🚚 ${waybill(t.id)}</b><br>
+        ${esc(siteName(t.from_site))} → ${esc(siteName(t.to_site))}<br>
+        ${esc(t.vehicle)} · ${esc(t.driver)}<br>
+        Left ${clock(new Date(t.sent_at).getTime())}<br>
+        <b>${p ? etaText(p) : ""}</b><br>
+        <span style="opacity:.7">Estimated position, not GPS. ${p && p.late ? "Call the driver, or Receive it if it has arrived." : ""}</span>`;
+    }
+
+    // Every few seconds, without redrawing the page: move the trucks, and refresh the ETA text
+    // in the Transfers table and in any truck popup that is open
+    setInterval(() => {
+      Object.values(MAPS).forEach(m => (m._trucks || []).forEach(x => {
+        const p = trip(x.t);
+        if (!p) return;
+        x.m.setLatLng(p.pos);
+        x.done.setLatLngs([p.a, p.pos]);
+        x.left.setLatLngs([p.pos, p.b]);
+        if (p.late !== x.late) { x.late = p.late; x.m.setIcon(truckIcon(x.t, p, x.mini)); }
+        if (x.m.isPopupOpen()) x.m.setPopupContent(() => truckPopup(x.t));   // a function, so reopening is fresh too
+      }));
+
+      document.querySelectorAll(".eta[data-tr]").forEach(e => {
+        const t = TR.find(x => x.id === +e.dataset.tr), p = t && trip(t);
+        if (!p) return;
+        e.textContent = etaText(p);
+        e.style.color = p.late ? "var(--s-crit)" : "var(--mu)";
+      });
+    }, 3000);
 
     // id = "map" for the full map, "dmap" for the dashboard snippet
     function drawMap(id = "map") {
@@ -3342,6 +3570,15 @@
             : logi() ? `<br><a href="#" onclick="setLoc(${s.id}); return false">Move pin</a>` : ""}`);
         return [+s.lat, +s.lng];
       });
+
+      // Trucks on the way: the part already driven is solid, the rest is dashed
+      const ink = col("--p2");
+      siteMap._trucks = TR.filter(t => t.status === "In transit").map(t => ({ t, p: trip(t) })).filter(x => x.p).map(({ t, p }) => ({
+        t, mini, late: p.late,
+        done: L.polyline([p.a, p.pos], { color: ink, weight: 3 }).addTo(siteMap),
+        left: L.polyline([p.pos, p.b], { color: ink, weight: 3, dashArray: "6 8", opacity: .8 }).addTo(siteMap),
+        m: L.marker(p.pos, { icon: truckIcon(t, p, mini), zIndexOffset: 1000 }).addTo(siteMap).bindPopup(() => truckPopup(t))
+      }));
 
       if (keep) siteMap.setView(keep.c, keep.z);
       else if (pins.length > 1) siteMap.fitBounds(pins, { padding: [30, 30], maxZoom: 15 });
