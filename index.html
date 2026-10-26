@@ -581,6 +581,15 @@
       .two, .cks { grid-template-columns: 1fr; }
     }
 
+    /* Printing a report: only the report, on white paper, without buttons */
+    @media print {
+      body { background: #fff; }
+      body * { visibility: hidden; }
+      #rp, #rp * { visibility: visible; color: #000 !important; }
+      #rp { position: absolute; left: 0; top: 0; width: 100%; border: 0; padding: 0; }
+      #rp button { display: none; }
+    }
+
     @media (prefers-reduced-motion: reduce) {
       * { animation: none !important; transition: none !important; }
     }
@@ -750,11 +759,8 @@
       "Shelter": "count", "Clothing": "count", "Household": "count"
     };
 
-    // Local date n days from now (used for "expires within a week")
-    const inDays = n => {                                                 // local date n days from now, yyyy-mm-dd
-      const d = new Date(Date.now() + n * 864e5), p = v => String(v).padStart(2, "0");
-      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-    };
+    // Date n days from today (used for "expires within a week")
+    const inDays = n => plusDays(today(), n);
 
     // Inventory  (don = donated, dist = distributed, per = amount given per family, all in the base unit)
     // lots = stock batches still on hand. Perishable lots have an expiry date and go out soonest-expiring first (FEFO).
@@ -783,6 +789,11 @@
     // Each stock batch in I[].lots has `site` (where it is) and `tr` (the transfer it's travelling on).
     let SITES = [], TR = [];
     const SITE_KINDS = ["Warehouse", "Distribution site", "Evacuation center"];
+
+    // Areas (province / municipality) and their status, and per-site counts of families still to serve
+    // (NEED comes from the database as numbers only, so even Logistics can see where goods are needed)
+    let AREAS = [], NEED = [];
+    const AREA_STATUS = ["Normal", "Signal 1", "Signal 2", "Signal 3", "Signal 4", "Signal 5", "State of Calamity"];
     let serveSite = null;   // site chosen in the serve screen
 
     // me = the logged-in account's id in the database
@@ -831,10 +842,10 @@
     // The site this account is assigned to by the Admin (Admins are never locked to one)
     const lockedSite = () => role === "Admin" ? null : (P.find(p => p.id === me) || {}).site_id || null;
     const pad2 = n => String(n).padStart(2, "0");
-    const today = () => {                                                 // local date, yyyy-mm-dd
-      const d = new Date();
-      return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-    };
+    // Dates are always Philippine dates (yyyy-mm-dd), like the database, whatever time zone the device is set to.
+    // "en-CA" is used only because it writes dates as yyyy-mm-dd.
+    const phDay = t => new Date(t).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+    const today = () => phDay(Date.now());
     const minDob = () => (new Date().getFullYear() - MAX_AGE) + today().slice(4);
     const plusDays = (d, n) => {                                          // yyyy-mm-dd + n days
       const x = new Date(d + "T00:00");
@@ -871,7 +882,7 @@
       return c.length ? c : [REG];
     }
 
-    const tier  = b => Math.min(...cats(b).map(c => CAT[c]));            // best (lowest) tier they qualify for
+    const tier  = b => Math.min(...cats(b).map(c => CAT[c] || 3));       // best (lowest) tier; unknown counts as regular
     const vulns = b => cats(b).filter(c => CAT[c] === 1).length;          // how many high-priority needs
     const tag = b => `<span class="tag t${tier(b)}">${PL[tier(b)]}</span>`;
 
@@ -916,11 +927,13 @@
     function errMsg(e) {
       if (e.code === "23505") return "That already exists (same ID number, name + birthdate, or item name)";
       if (e.code === "42501") return "Your role isn't allowed to do that";
+      if (e.code === "23503") return "Can't delete: other records depend on this one (e.g. relief already given)";
+      if (e.code === "23514") return "That value isn't allowed. Pick one from the list";
       return e.message || "Something went wrong. Check your internet connection";
     }
 
     async function load() {
-      const [pr, ben, sp, it, lots, don, dist, mov, st, trs, cfg] = await Promise.all([
+      const [pr, ben, sp, it, lots, don, dist, mov, st, trs, cfg, ar, nd] = await Promise.all([
         sb.from("profiles").select("id, username, name, role, status, site_id").order("created_at"),
         sb.from("beneficiaries")
           .select("id, name, brgy, dob, fam, cats, inc, id_type, id_last4, verified, served, last_served, site_id, registered_by, verified_by")
@@ -935,10 +948,21 @@
         sb.from("stock_movements").select("at, item_id, kind, qty, reason, by_user, site_id").order("id", { ascending: false }),
         sb.from("sites").select("*").order("id"),
         sb.from("transfers").select("*, transfer_items(item_id, qty_sent, qty_received)").order("id", { ascending: false }),
-        sb.from("app_settings").select("serve_wait_days").maybeSingle()
+        sb.from("app_settings").select("serve_wait_days").maybeSingle(),
+        sb.from("areas").select("*").order("name"),
+        sb.rpc("site_need")   // counts only, so every role can see where goods are needed
       ]);
-      const failed = [pr, ben, sp, it, lots, don, dist, mov, st, trs, cfg].find(r => r.error);
-      if (failed) { toast(errMsg(failed.error)); return false; }
+      // If one read fails, say which table and the database's own message (helps find a missing SQL update)
+      const all = [pr, ben, sp, it, lots, don, dist, mov, st, trs, cfg, ar, nd];
+      const names = ["profiles", "beneficiaries", "sponsors", "item_totals", "stock_lots", "donations",
+                     "distributions", "stock_movements", "sites", "transfers", "app_settings", "areas", "site_need"];
+      const bad = all.findIndex(r => r.error);
+      if (bad >= 0) {
+        const e = all[bad].error;
+        console.error("load() failed on", names[bad], e);
+        toast(`Can't load ${names[bad]}: ${e.message || errMsg(e)}`);
+        return false;
+      }
 
       P = pr.data;
       if (cfg.data) WAIT = cfg.data.serve_wait_days;
@@ -951,7 +975,7 @@
       // Claim codes come only to LGU and Admin, who print the cards. Contact numbers never come to the page.
       if (staff()) {
         const cc = await sb.rpc("claim_codes");
-        if (cc.error) { toast(errMsg(cc.error)); return false; }
+        if (cc.error) { console.error("load() failed on claim_codes", cc.error); toast(`Can't load claim codes: ${cc.error.message}`); return false; }
         cc.data.forEach(r => { const b = B.find(x => x.id === r.id); if (b) b.code = r.claim_code || ""; });
       }
       S = sp.data;
@@ -964,6 +988,8 @@
       }));
       SITES = st.data;
       TR = trs.data;
+      AREAS = ar.data;
+      NEED = nd.data;
       if (!SITES.some(s => s.id === serveSite)) serveSite = (SITES.find(s => s.kind !== "Warehouse") || SITES[0] || {}).id;
       if (lockedSite()) serveSite = lockedSite();   // staff assigned to a site always work there
 
@@ -983,7 +1009,7 @@
         skip: d.skip_reason || "", okBy: d.approved_by && d.approved_by !== d.served_by ? uname(d.approved_by) : ""
       }));
       M = mov.data.map(m => ({
-        date: m.at.slice(0, 10), item: itemName(m.item_id), kind: m.kind, q: +m.qty,
+        date: phDay(m.at), item: itemName(m.item_id), kind: m.kind, q: +m.qty,
         unit: (x => x ? unit(x) : "")(I.find(i => i.id === m.item_id)), reason: m.reason, by: uname(m.by_user),
         site: m.site_id ? siteName(m.site_id) : "—"
       }));
@@ -996,7 +1022,12 @@
           sb.from("account_details").select("*"),
           sb.from("reset_requests").select("id, user_id, note, created_at").eq("status", "Pending").order("id")
         ]);
-        if (det.error || req.error) { toast(errMsg(det.error || req.error)); return false; }
+        if (det.error || req.error) {
+          const e = det.error || req.error;
+          console.error("load() failed on", det.error ? "account_details" : "reset_requests", e);
+          toast(`Can't load ${det.error ? "account_details" : "reset_requests"}: ${e.message}`);
+          return false;
+        }
         R = req.data;
         A = P.map(p => {
           const d = det.data.find(x => x.id === p.id) || {};
@@ -1408,8 +1439,11 @@
       go("Dashboard");
       toast("Login successful");
 
-      // Show the tutorial on the first login
-      if (!toured) {
+      // Show the tour on this person's first login in this browser (remembered per account, not per page load)
+      const seen = "toured:" + me;
+      let first = !toured;
+      try { first = !localStorage.getItem(seen); localStorage.setItem(seen, "1"); } catch (e) {}
+      if (first) {
         toured = true;
         setTimeout(() => tour(0), 700);
       }
@@ -1420,7 +1454,7 @@
       endTour();
       await sb.auth.signOut();
       role = user = me = "";
-      P = A = R = B = S = I = D = DON = M = SITES = TR = [];
+      P = A = R = B = S = I = D = DON = M = SITES = TR = AREAS = NEED = [];
       $("app").style.display = "none";
       $("login").style.display = "grid";
       showLogin();
@@ -1622,6 +1656,8 @@
         x: "The key numbers at a glance: who is registered, who is waiting, how many families the stock can still serve, and what expires soon." },
       { t: "Sites at a glance", page: "Sites & Transfers", sel: "[data-tour=minimap]", onPage: "Dashboard",
         x: "Every warehouse and evacuation center on one map. <b>Green</b> can serve 20+ families, <b>gold</b> is running low, <b>red</b> is out. Tap a pin for details." },
+      { t: "Where to send goods", page: "Sites & Transfers", onPage: "Dashboard", sel: "[data-tour=where]", key: true,
+        x: "Sites ranked by need: <b>area status × (families short + high-priority families)</b>. A State of Calamity weighs 3, a storm signal 1.5–2. Areas under a signal with no shortage appear under <b>Pre-position</b>: prepare, don't distribute yet. Logistics presses <b>Dispatch</b> to open the form already filled in. It's a suggestion: check roads and other agencies first." },
       { t: "Trends", page: "Dashboard", sel: "[data-tour=charts]", roles: ["Admin", "LGU Personnel", "NGO Staff", "Logistics Officer"],
         x: "Families served per day, and which priority groups received relief. Hover a bar for its number, or open <b>Show as table</b>." },
       { t: "Register a family", page: "Beneficiaries", sel: "[data-tour=register]", roles: ["Admin", "LGU Personnel", "NGO Staff", "Volunteer"],
@@ -1778,6 +1814,7 @@
         const expiredCount = I.filter(x => spoiled(x) > 0).length;
         return `
           <div class="grid" data-tour="stats">${statCards}</div>
+          ${MENU[role].includes("Sites & Transfers") ? whereToSend() : ""}
           ${MENU[role].includes("Sites & Transfers") ? `
             <div class="card" data-tour="minimap">
               <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
@@ -1813,7 +1850,7 @@
                 : `<button class="btn o s" onclick="printCards([${b.id}])" title="Print this family's QR claim card">Card</button>
                    <button class="btn o s" onclick="reissue(${b.id})" title="Lost card: make a new code. The old card stops working">New code</button> `)
               + `<button class="btn o s" onclick="moveSite(${b.id})" title="Change where this family claims relief">Site</button> `
-              + `<button class="btn o s" onclick="delB(${b.id})">Delete</button>`
+              + (b.done ? "" : `<button class="btn o s" onclick="delB(${b.id})">Delete</button>`)
             : "";
 
           return `
@@ -2037,12 +2074,12 @@
           const canAct = t.status === "In transit";
           return `
             <tr>
-              <td><b>${waybill(t.id)}</b><br><span style="color:var(--mu);font-size:12px">${t.sent_at.slice(0, 10)}</span></td>
+              <td><b>${waybill(t.id)}</b><br><span style="color:var(--mu);font-size:12px">${phDay(t.sent_at)}</span></td>
               <td>${esc(siteName(t.from_site))} →<br>${esc(siteName(t.to_site))}</td>
               <td style="white-space:normal">${items}</td>
               <td>${esc(t.vehicle)}<br><span style="color:var(--mu);font-size:12px">${esc(t.driver)}</span></td>
               <td>${status(t)}${t.received_at && t.status === "Delivered"
-                ? `<br><span style="color:var(--mu);font-size:12px">${t.received_at.slice(0, 10)} · ${esc(uname(t.received_by))}</span>` : ""}
+                ? `<br><span style="color:var(--mu);font-size:12px">${phDay(t.received_at)} · ${esc(uname(t.received_by))}</span>` : ""}
                 ${canAct ? (p => `<br><span class="eta" data-tr="${t.id}" style="font-size:12px;color:${p && p.late ? "var(--s-crit)" : "var(--mu)"}">${p ? etaText(p)
                   : "ETA unknown · put both sites on the map"}</span>`)(trip(t)) : ""}</td>
               <td>
@@ -2061,6 +2098,8 @@
               <button class="btn a" data-tour="dispatch" onclick="addTransfer()">+ Dispatch goods</button>
             </div>` : ""}
           </div>
+
+          ${areaCard()}
 
           <div class="card" data-tour="map">
             <b>Map of sites</b>
@@ -2162,13 +2201,13 @@
         const pending = A.filter(a => a.st === "Pending");
 
         const rows = A.map(a => {
-          const id = a.idt ? a.idt.split(" ")[0] + " " + mask(a.idn) : "On file";
+          const id = a.idt ? esc(a.idt.split(" ")[0]) + " " + mask(a.idn) : "On file";
           const qrTag = a.qr ? ` <span class="tag t3" title="Details filled from the PhilSys QR code">QR</span>` : "";
           return `
             <tr>
               <td>${esc(a.name)}</td>
-              <td>${a.u}</td>
-              <td>${a.role}</td>
+              <td>${esc(a.u)}</td>
+              <td>${esc(a.role)}</td>
               <td>${a.role === "Admin" ? `<span style="color:var(--mu)">All sites</span>` : `
                 <select style="width:auto;padding:5px" onchange="setUserSite('${a.id}', this.value)"
                   title="Assigned staff can only serve at this site">
@@ -2303,8 +2342,8 @@
       if (b.byId === me) return toast("You registered this person. Another LGU or Admin must verify them");
 
       const proofs = cats(b).filter(c => c !== REG).map(c => `
-        <label><input type="checkbox" class="pf" value="${c}">
-          <span><b>${c}</b><br><span style="color:var(--mu)">${PROOF[c]}</span></span></label>`).join("");
+        <label><input type="checkbox" class="pf" value="${esc(c)}">
+          <span><b>${esc(c)}</b><br><span style="color:var(--mu)">${PROOF[c] || "Unknown category: remove it"}</span></span></label>`).join("");
 
       const warnings = b.flags.length ? `
         <div class="card warn" style="margin:12px 0 0">
@@ -2501,7 +2540,11 @@
     }
 
     async function delB(id) {
-      if (!confirm("Delete " + B.find(b => b.id === id).name + "? This cannot be undone.")) return;
+      const b = B.find(x => x.id === id);
+      // Their distributions are the record of where the goods went, so a served family is never deleted
+      // (the database refuses it too). Use "Site" to move them, or leave the record as it is.
+      if (b.done) return toast(`${b.name} already received relief, so the record is kept as proof of distribution`);
+      if (!confirm("Delete " + b.name + "? This cannot be undone.")) return;
 
       if (await act(sb.from("beneficiaries").delete().eq("id", id), "Record deleted")) go("Beneficiaries");
     }
@@ -2621,7 +2664,7 @@
         <h3>Distribute relief goods</h3>
         <p>
           <b>${esc(b.name)}</b> ${tag(b)}<br>
-          <span style="color:var(--mu)">${esc(b.brgy)} · ${b.idt.split(" ")[0]} ${mask(b.idn)} · family of ${b.fam}</span>
+          <span style="color:var(--mu)">${esc(b.brgy)} · ${esc(b.idt.split(" ")[0])} ${mask(b.idn)} · family of ${b.fam}</span>
         </p>
         ${outOfOrder}
         <div id="kin"></div>
@@ -2908,6 +2951,88 @@
         on ? `${x.item} is now given out` : `${x.item} is no longer given out`)) go(cur);
     }
 
+    // ----- Areas and their status -----
+    // LGU / Admin declare each area's status (from PAGASA signals or a State of Calamity declaration).
+    // Logistics / Admin put each site in an area. Together they drive "Where to send goods".
+    function areaCard() {
+      const rows = AREAS.map(a => {
+        const sites = SITES.filter(s => s.area_id === a.id);
+        return `
+          <tr>
+            <td><b>${esc(a.name)}</b></td>
+            <td>${staff() ? `<select style="width:auto;padding:5px" onchange="setAreaStatus(${a.id}, this.value, this)">
+                  ${AREA_STATUS.map(st => `<option ${st === a.status ? "selected" : ""}>${st}</option>`).join("")}
+                </select>` : statusTag(a.status)}</td>
+            <td style="white-space:normal">${sites.map(s => esc(s.name)).join(", ") || `<span style="color:var(--mu)">none yet</span>`}</td>
+            <td style="color:var(--mu);font-size:12px">${new Date(a.updated_at).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}
+              ${a.updated_by ? "· " + esc(uname(a.updated_by)) : ""}</td>
+          </tr>`;
+      }).join("");
+
+      // Which area each site is in (Logistics / Admin can change it)
+      const siteRows = logi() && AREAS.length ? SITES.map(s => `
+        <tr>
+          <td>${esc(s.name)} <span style="color:var(--mu);font-size:12px">${s.kind}</span></td>
+          <td><select style="width:auto;padding:5px" onchange="setSiteArea(${s.id}, this.value)">
+            <option value="">No area</option>
+            ${AREAS.map(a => `<option value="${a.id}" ${a.id === s.area_id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}
+          </select></td>
+        </tr>`).join("") : "";
+
+      return `
+        <div class="card tw" data-tour="areas">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <span><b>Areas &amp; status</b> <span style="color:var(--mu)">· Signal 1–5 (PAGASA) or a declared State of Calamity</span></span>
+            ${staff() ? `<button class="btn o s" onclick="addArea()">+ Add area</button>` : ""}
+          </div>
+          ${AREAS.length ? `<table>
+              <tr><th>Area</th><th>Status</th><th>Sites</th><th>Last changed</th></tr>${rows}
+            </table>` : `<p style="color:var(--mu)">No areas yet.${staff() ? " Add the provinces or municipalities you serve." : ""}</p>`}
+          ${siteRows ? `<details style="margin-top:8px"><summary>Which area each site is in</summary>
+            <table><tr><th>Site</th><th>Area</th></tr>${siteRows}</table></details>` : ""}
+          <div class="note">${staff() ? "Changing a status re-ranks <b>Where to send goods</b> on every device and is logged with your name."
+            : "Only LGU or Admin can change an area's status."}</div>
+        </div>`;
+    }
+
+    function addArea() {
+      modal(`
+        <h3>Add area</h3>
+        <label>Province or municipality</label>
+        <input id="ar1" placeholder="e.g. Bataan">
+        <div class="actions">
+          <button class="btn a" onclick="saveArea()">Save</button>
+          <button class="btn o" onclick="close_()">Cancel</button>
+        </div>`);
+    }
+
+    async function saveArea() {
+      const name = $("ar1").value.trim();
+      if (!name) return toast("Enter the area name");
+      if (await act(sb.rpc("add_area", { p_name: name }), `${name} added · set its status, then put its sites in it`)) {
+        close_();
+        go("Sites & Transfers");
+      }
+    }
+
+    async function setAreaStatus(id, status, el) {
+      const a = AREAS.find(x => x.id === id);
+      // A State of Calamity is an official declaration: confirm it was really declared
+      if (status === "State of Calamity" &&
+          !confirm(`Mark ${a.name} as under a State of Calamity?\n\nOnly do this once it has been officially declared. Its sites will be ranked first for relief.`)) {
+        el.value = a.status;
+        return;
+      }
+      if (await act(sb.rpc("set_area_status", { p_area: id, p_status: status }), `${a.name}: ${status}`)) go(cur);
+      else el.value = a.status;
+    }
+
+    async function setSiteArea(siteId, areaId) {
+      areaId = +areaId || null;
+      if (await act(sb.from("sites").update({ area_id: areaId }).eq("id", siteId),
+        `${siteName(siteId)} ${areaId ? "is in " + AREAS.find(a => a.id === areaId).name : "has no area"}`)) go(cur);
+    }
+
     // ----- Sites -----
     function addSite() {
       modal(`
@@ -2934,17 +3059,26 @@
     }
 
     // ----- Dispatch (send goods from one site to another) -----
-    function addTransfer() {
+    // toId / fromId / plan / families: filled in when opened from "Where to send goods"
+    function addTransfer(toId, fromId, plan, families) {
       if (SITES.length < 2) return toast("Add at least two sites first");
-      const from = (SITES.find(s => s.kind === "Warehouse") || SITES[0]).id;
-      const to = (SITES.find(s => s.id !== from && s.kind !== "Warehouse") || SITES.find(s => s.id !== from)).id;
-      const opts = sel => SITES.map(s => `<option value="${s.id}" ${s.id === sel ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+      // Destinations most in need first, labelled with their shortage
+      const rows = needRows(), need = id => rows.find(r => r.s.id === id) || { score: 0, shortage: 0 };
+      const byNeed = [...SITES].sort((a, b) => need(b.id).score - need(a.id).score);
+      const from = fromId || (SITES.find(s => s.kind === "Warehouse") || SITES[0]).id;
+      const to = toId || (byNeed.find(s => s.id !== from && s.kind !== "Warehouse") || SITES.find(s => s.id !== from)).id;
+      const opts = (list, sel, label) => list.map(s =>
+        `<option value="${s.id}" ${s.id === sel ? "selected" : ""}>${esc(s.name)}${label ? label(s) : ""}</option>`).join("");
+      const short = s => need(s.id).shortage ? ` · ${need(s.id).shortage} families short (${statusOf(s)})` : "";
 
       modal(`
         <h3>Dispatch goods</h3>
+        ${plan ? `<div class="note" style="margin-top:0">Suggested for <b>${families}</b> ${families === 1 ? "family" : "families"} at
+          <b>${esc(siteName(to))}</b>, from the site with the most stock. Per-person items assume ${FAM_SIZE} people per family.
+          Check the amounts before dispatching.</div>` : ""}
         <div class="two">
-          <div><label>From</label><select id="d1" onchange="trRows()">${opts(from)}</select></div>
-          <div><label>To</label><select id="d2">${opts(to)}</select></div>
+          <div><label>From</label><select id="d1" onchange="trRows()">${opts(SITES, from)}</select></div>
+          <div><label>To (most in need first)</label><select id="d2">${opts(byNeed, to, short)}</select></div>
         </div>
 
         <label>Goods (amount in each item's unit)</label>
@@ -2962,17 +3096,18 @@
           <button class="btn a" onclick="saveTransfer()">Dispatch</button>
           <button class="btn o" onclick="close_()">Cancel</button>
         </div>`);
-      trRows();
+      if (plan && plan.length) $("d_rows").innerHTML = plan.map(p => trRow(p.item_id, p.qty)).join("");
+      else trRows();
     }
 
-    // One goods line: only items the sending site has
-    function trRow() {
+    // One goods line: only items the sending site has (sel / qty pre-fill it)
+    function trRow(sel, qty) {
       const from = +$("d1").value;
       const opts = I.filter(x => remAt(x, from) > 0)
-        .map(x => `<option value="${x.id}">${esc(x.item)} (${remAt(x, from)} ${unit(x)} there)</option>`).join("");
+        .map(x => `<option value="${x.id}" ${x.id === sel ? "selected" : ""}>${esc(x.item)} (${remAt(x, from)} ${unit(x)} there)</option>`).join("");
       return opts
         ? `<div class="two d_row" style="margin-top:6px"><select class="d_i">${opts}</select>
-             <input class="d_v" type="number" min="0" step="any" placeholder="Amount"></div>`
+             <input class="d_v" type="number" min="0" step="any" placeholder="Amount" value="${qty || ""}"></div>`
         : `<p class="d_row" style="color:var(--mu)">${esc(siteName(from))} has no usable stock.</p>`;
     }
 
@@ -3476,6 +3611,90 @@
       return use.length ? Math.min(...use.map(x => Math.floor(remAt(x, s.id) / share(x, 1)))) : 0;
     }
 
+    // ----- Where to send goods -----
+    // Ranks the sites that need goods. Only a suggestion: a person still checks roads and other agencies, then dispatches.
+    //   shortage = families waiting − families the site can serve (its stock + trucks already on the way)
+    //   score    = area status weight × (shortage + high-priority families waiting)
+    // High-priority families count twice on purpose, so the most vulnerable push a site up the list.
+    const STATUS_WEIGHT = { "Normal": 1, "Signal 1": 1, "Signal 2": 1.5, "Signal 3": 1.5,
+                            "Signal 4": 2, "Signal 5": 2, "State of Calamity": 3 };
+    const FAM_SIZE = 4;   // people per family assumed when suggesting per-person items (PH average is about 4)
+    const areaOf = s => AREAS.find(a => a.id === s.area_id) || null;
+    const statusOf = s => (areaOf(s) || {}).status || "Normal";
+    const statusTag = st => `<span class="tag ${st === "State of Calamity" ? "t1" : /^Signal/.test(st) ? "t2" : "t0"}">${st}</span>`;
+
+    // Amount of an item on trucks heading to a site
+    const incoming = (x, siteId) => num(TR.filter(t => t.status === "In transit" && t.to_site === siteId)
+      .flatMap(t => t.transfer_items).filter(ti => ti.item_id === x.id).reduce((s, ti) => s + +ti.qty_sent, 0));
+
+    // Families a site can fully serve with what it holds, optionally counting what is on the way
+    function coverAt(s, withTrucks) {
+      const fam = given().filter(x => x.basis === "family"), use = fam.length ? fam : given();
+      return use.length ? Math.min(...use.map(x =>
+        Math.floor((remAt(x, s.id) + (withTrucks ? incoming(x, s.id) : 0)) / share(x, 1)))) : 0;
+    }
+
+    function needRows() {
+      return SITES.filter(s => s.kind !== "Warehouse").map(s => {
+        const n = NEED.find(r => r.site_id === s.id) || { waiting: 0, high: 0, registered: 0 };
+        const status = statusOf(s), w = STATUS_WEIGHT[status] || 1;
+        const now = coverAt(s, false), withTrucks = coverAt(s, true);
+        const shortage = Math.max(0, n.waiting - withTrucks);
+        const prep = Math.max(0, n.registered - withTrucks);   // before a storm: enough for everyone registered there
+        return {
+          s, area: areaOf(s), status, w, waiting: n.waiting, high: n.high, registered: n.registered,
+          now, onWay: withTrucks - now, shortage, prep,
+          score: shortage ? w * (shortage + n.high) : 0,
+          prepScore: /^Signal/.test(status) ? w * prep : 0
+        };
+      });
+    }
+
+    function whereToSend() {
+      const rows = needRows();
+      const relief = rows.filter(r => r.score > 0).sort((a, b) => b.score - a.score);
+      const prep = rows.filter(r => r.prepScore > 0 && !r.score).sort((a, b) => b.prepScore - a.prepScore);
+      const line = (r, i, prepping) => `
+        <div class="q" style="animation:none">
+          <div class="n">${i + 1}</div>
+          <div class="g">
+            <b>${esc(r.s.name)}</b> · ${r.area ? esc(r.area.name) : `<span style="color:var(--mu)">no area set</span>`} ${statusTag(r.status)}<br>
+            <span style="color:var(--mu)">${prepping
+              ? `Stock for ${r.now + r.onWay} of ${r.registered} registered families${r.onWay ? ` (${r.onWay} on the way)` : ""} · storm expected`
+              : `${r.shortage} ${r.shortage === 1 ? "family" : "families"} short · ${r.high} high priority waiting · `
+                + (r.onWay ? `${r.onWay} covered by trucks on the way` : "no truck on the way")}
+              · score ${num(prepping ? r.prepScore : r.score)}</span>
+          </div>
+          ${logi() ? `<button class="btn ${prepping ? "o" : "a"} s" onclick="sendTo(${r.s.id}, ${prepping ? r.prep : r.shortage})">
+            ${prepping ? "Pre-position" : "Dispatch"}</button>` : ""}
+        </div>`;
+
+      return `
+        <div class="card" data-tour="where">
+          <b>Where to send goods</b>
+          <span style="color:var(--mu)">· area status × (families short + high-priority families)</span>
+          ${relief.length ? `<p style="margin:12px 0 6px"><b>Send relief now</b></p>${relief.map((r, i) => line(r, i)).join("")}`
+            : `<p style="color:var(--mu);margin:10px 0 0">No site is short of goods right now.</p>`}
+          ${prep.length ? `<p style="margin:14px 0 6px"><b>Pre-position</b>
+              <span style="color:var(--mu)">· a storm signal is raised: prepare before it hits, don't distribute yet</span></p>
+            ${prep.map((r, i) => line(r, i, true)).join("")}` : ""}
+          <div class="note">A suggestion from the numbers in the system. Check road access and what other agencies are
+            already sending before dispatching.${SITES.some(s => s.kind !== "Warehouse" && !s.area_id)
+              ? " Some sites have no area yet: set it in <b>Sites &amp; Transfers</b>." : ""}</div>
+        </div>`;
+    }
+
+    // Logistics: open Dispatch pre-filled for a site that needs goods for `families` families.
+    // Sends from the site holding the most stock, up to what it has.
+    function sendTo(siteId, families) {
+      const from = SITES.filter(s => s.id !== siteId)
+        .sort((a, b) => coverAt(b, false) - coverAt(a, false) || (b.kind === "Warehouse") - (a.kind === "Warehouse"))[0];
+      if (!from) return toast("Add another site to send from");
+      const plan = given().map(x => ({ item_id: x.id, qty: num(Math.min(remAt(x, from.id), share(x, FAM_SIZE) * families)) }))
+        .filter(p => p.qty > 0);
+      addTransfer(siteId, from.id, plan, families);
+    }
+
     // ----- Trucks on the way (estimated position, no GPS) -----
     // How far along the line from sender to receiver the truck should be by now,
     // worked out from the dispatch time, the distance and an average speed.
@@ -3564,6 +3783,7 @@
           radius: s.kind === "Warehouse" ? 12 : 9, color: col("--card"), weight: 2, fillColor: col(color), fillOpacity: 1
         }).addTo(siteMap).bindPopup(`
           <b>${esc(s.name)}</b><br>${s.kind}${s.brgy ? " · " + esc(s.brgy) : ""}<br>
+          ${areaOf(s) ? `${esc(areaOf(s).name)} · <b>${areaOf(s).status}</b><br>` : ""}
           <b>${label}</b> · can serve ${f} ${f === 1 ? "family" : "families"}
           ${coming ? `<br>${coming} truck${coming > 1 ? "s" : ""} on the way` : ""}
           ${mini ? `<br><a href="#" onclick="go('Sites & Transfers'); return false">Open Sites &amp; Transfers</a>`
@@ -3672,8 +3892,10 @@
       el.style.display = "block";
       el.className = "card in";
       el.innerHTML = `
-        <b>${type} report</b>
         <button class="btn s" style="float:right" onclick="window.print()">Print / Save PDF</button>
+        <h3>ReliefSys · ${type} report</h3>
+        <p style="color:var(--mu);margin:4px 0 0">Generated ${new Date().toLocaleString("en-PH", { timeZone: "Asia/Manila" })}
+          by ${esc(user)} (${esc(role)}) · ${lines.length} ${lines.length === 1 ? "entry" : "entries"}</p>
         <ul>${lines.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
     }
 
